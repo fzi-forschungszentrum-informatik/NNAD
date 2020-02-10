@@ -1,0 +1,130 @@
+From 79d1fcba38344641615b05208a03d57ad5194c65 Mon Sep 17 00:00:00 2001
+From: Niels Ole Salscheider <salscheider@fzi.de>
+Date: Mon, 10 Feb 2020 18:00:30 +0100
+Subject: [PATCH 1/2] Fixes to the base model
+
+Without this it does not run.
+---
+ .../vision/detection/dataloader/retinanet_parser.py    |  5 +++++
+ official/vision/detection/evaluation/coco_evaluator.py |  2 +-
+ official/vision/detection/evaluation/coco_utils.py     |  6 +++---
+ official/vision/detection/main.py                      | 10 ++++++++++
+ official/vision/detection/modeling/checkpoint_utils.py |  5 ++++-
+ 5 files changed, 23 insertions(+), 5 deletions(-)
+
+diff --git a/official/vision/detection/dataloader/retinanet_parser.py b/official/vision/detection/dataloader/retinanet_parser.py
+index 8f37bc9a..3b06303b 100644
+--- a/official/vision/detection/dataloader/retinanet_parser.py
++++ b/official/vision/detection/dataloader/retinanet_parser.py
+@@ -32,6 +32,7 @@ from official.vision.detection.utils import input_utils
+ 
+ 
+ def process_source_id(source_id):
++  return source_id
+   """Processes source_id to the right format."""
+   if source_id.dtype == tf.string:
+     source_id = tf.cast(tf.strings.to_number(source_id), tf.int32)
+@@ -332,6 +333,8 @@ class Parser(object):
+     # Sets up groundtruth data for evaluation.
+     groundtruths = {
+         'source_id': data['source_id'],
++        'height': data['height'],
++        'width': data['width'],
+         'num_groundtrtuhs': tf.shape(data['groundtruth_classes']),
+         'image_info': image_info,
+         'boxes': box_utils.denormalize_boxes(
+@@ -395,6 +398,8 @@ class Parser(object):
+           data['groundtruth_boxes'], image_shape)
+       groundtruths = {
+           'source_id': data['source_id'],
++          'height': data['height'],
++          'width': data['width'],
+           'num_detections': tf.shape(data['groundtruth_classes']),
+           'boxes': boxes,
+           'classes': data['groundtruth_classes'],
+diff --git a/official/vision/detection/evaluation/coco_evaluator.py b/official/vision/detection/evaluation/coco_evaluator.py
+index 6413faa2..aed5cc0e 100644
+--- a/official/vision/detection/evaluation/coco_evaluator.py
++++ b/official/vision/detection/evaluation/coco_evaluator.py
+@@ -58,7 +58,7 @@ class MetricWrapper(object):
+       if isinstance(val, tuple):
+         val = np.concatenate(val)
+       predictions[key] = val
+-    for key, val in labels.items():
++    for key, val in labels['groundtruths'].items():
+       if isinstance(val, tuple):
+         val = np.concatenate(val)
+       groundtruths[key] = val
+diff --git a/official/vision/detection/evaluation/coco_utils.py b/official/vision/detection/evaluation/coco_utils.py
+index 7c634493..315273e8 100644
+--- a/official/vision/detection/evaluation/coco_utils.py
++++ b/official/vision/detection/evaluation/coco_utils.py
+@@ -207,7 +207,7 @@ def convert_groundtruths_to_coco_dataset(groundtruths, label_map=None):
+   source_ids = np.concatenate(groundtruths['source_id'], axis=0)
+   heights = np.concatenate(groundtruths['height'], axis=0)
+   widths = np.concatenate(groundtruths['width'], axis=0)
+-  gt_images = [{'id': int(i), 'height': int(h), 'width': int(w)} for i, h, w
++  gt_images = [{'id': i, 'height': int(h), 'width': int(w)} for i, h, w
+                in zip(source_ids, heights, widths)]
+ 
+   gt_annotations = []
+@@ -215,10 +215,10 @@ def convert_groundtruths_to_coco_dataset(groundtruths, label_map=None):
+   batch_size = groundtruths['source_id'][0].shape[0]
+   for i in range(num_batches):
+     for j in range(batch_size):
+-      num_instances = groundtruths['num_detections'][i][j]
++      num_instances = groundtruths['num_detections'][i][j][0]
+       for k in range(num_instances):
+         ann = {}
+-        ann['image_id'] = int(groundtruths['source_id'][i][j])
++        ann['image_id'] = groundtruths['source_id'][i][j]
+         if 'is_crowds' in groundtruths:
+           ann['iscrowd'] = int(groundtruths['is_crowds'][i][j, k])
+         else:
+diff --git a/official/vision/detection/main.py b/official/vision/detection/main.py
+index 8ff72646..5aad9487 100644
+--- a/official/vision/detection/main.py
++++ b/official/vision/detection/main.py
+@@ -37,6 +37,13 @@ from official.vision.detection.executor.detection_executor import DetectionDistr
+ from official.vision.detection.modeling import factory as model_factory
+ from official.utils.misc import keras_utils
+ 
++# Find number of visible GPUs
++physical_devices = tf.config.list_physical_devices('GPU')
++NUM_GPU = 0
++for dev in physical_devices:
++  tf.config.experimental.set_memory_growth(dev, True)
++  NUM_GPU += 1
++
+ hyperparams_flags.initialize_common_flags()
+ 
+ flags.DEFINE_bool(
+@@ -71,6 +78,9 @@ def run_executor(params,
+                  callbacks=None):
+   """Runs Retinanet model on distribution strategy defined by the user."""
+ 
++  # Ugly hack to set number of GPUs to visible GPUs
++  params.strategy_config.num_gpus = NUM_GPU
++
+   if params.architecture.use_bfloat16:
+     policy = tf.compat.v2.keras.mixed_precision.experimental.Policy(
+         'mixed_bfloat16')
+diff --git a/official/vision/detection/modeling/checkpoint_utils.py b/official/vision/detection/modeling/checkpoint_utils.py
+index a4346e68..ee29cbbb 100644
+--- a/official/vision/detection/modeling/checkpoint_utils.py
++++ b/official/vision/detection/modeling/checkpoint_utils.py
+@@ -77,7 +77,10 @@ def _build_assignment_map(keras_model,
+         assert len(match_names) == 1, 'more then on matches for {}: {}'.format(
+             var_name, match_names)
+         checkpoint_names.remove(match_names[0])
+-        assignment_map[match_names[0]] = var
++        if 'class_net' in match_names[0] or 'box_net' in  match_names[0] or 'fpn' in match_names[0]:
++            print('Skipping ' + match_names[0])
++        else:
++            assignment_map[match_names[0]] = var
+       else:
+         logging.info('Error not found var name: %s', var_name)
+     except Exception as e:
+-- 
+2.17.1
+

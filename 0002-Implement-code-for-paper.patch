@@ -1,0 +1,994 @@
+From 7cf75bc0046e8f80345f0925cbaff2d51dd3615e Mon Sep 17 00:00:00 2001
+From: Niels Ole Salscheider <salscheider@fzi.de>
+Date: Mon, 10 Feb 2020 18:20:42 +0100
+Subject: [PATCH 2/2] Implement code for paper
+
+---
+ .../detection/configs/retinanet_config.py     |  54 +++--
+ .../vision/detection/dataloader/anchor.py     |   4 +-
+ .../detection/dataloader/retinanet_parser.py  |   7 +-
+ .../detection/evaluation/coco_evaluator.py    |  39 ++++
+ .../detection/executor/detection_executor.py  |   2 +-
+ .../detection/modeling/architecture/heads.py  |  60 +++++-
+ .../vision/detection/modeling/base_model.py   |   3 +
+ official/vision/detection/modeling/losses.py  |  93 ++++++++
+ .../detection/modeling/retinanet_model.py     |  86 +++++++-
+ .../vision/detection/ops/postprocess_ops.py   | 204 +++++++++++++++++-
+ 10 files changed, 504 insertions(+), 48 deletions(-)
+
+diff --git a/official/vision/detection/configs/retinanet_config.py b/official/vision/detection/configs/retinanet_config.py
+index 8c5901b3..44984ac6 100644
+--- a/official/vision/detection/configs/retinanet_config.py
++++ b/official/vision/detection/configs/retinanet_config.py
+@@ -31,23 +31,21 @@ RESNET_FROZEN_VAR_PREFIX = r'(resnet\d+)\/(conv2d(|_([1-9]|10))|batch_normalizat
+ RETINANET_CFG = {
+     'type': 'retinanet',
+     'model_dir': '',
+-    'use_tpu': True,
++    'use_tpu': False,
+     'train': {
+-        'batch_size': 64,
+-        'iterations_per_loop': 500,
+-        'total_steps': 22500,
++        'batch_size': 4,
++        'iterations_per_loop': 100,
++        'total_steps': 800000,
+         'optimizer': {
+-            'type': 'momentum',
+-            'momentum': 0.9,
+-            'nesterov': True,  # `False` is better for TPU v3-128.
++            'type': 'lamb',
+         },
+         'learning_rate': {
+             'type': 'step',
+-            'warmup_learning_rate': 0.0067,
+-            'warmup_steps': 500,
+-            'init_learning_rate': 0.08,
+-            'learning_rate_levels': [0.008, 0.0008],
+-            'learning_rate_steps': [15000, 20000],
++            'warmup_learning_rate': 1e-5,
++            'warmup_steps': 2000,
++            'init_learning_rate': 1e-4,
++            'learning_rate_levels': [5e-5, 1e-5, 5e-6],
++            'learning_rate_steps': [100000, 200000, 400000],
+         },
+         'checkpoint': {
+             'path': '',
+@@ -61,7 +59,7 @@ RETINANET_CFG = {
+         'input_sharding': False,
+     },
+     'eval': {
+-        'batch_size': 8,
++        'batch_size': 1,
+         'min_eval_interval': 180,
+         'eval_timeout': None,
+         'eval_samples': 5000,
+@@ -71,7 +69,7 @@ RETINANET_CFG = {
+         'input_sharding': True,
+     },
+     'predict': {
+-        'predict_batch_size': 8,
++        'predict_batch_size': 1,
+     },
+     'architecture': {
+         'parser': 'retinanet_parser',
+@@ -88,17 +86,17 @@ RETINANET_CFG = {
+     },
+     'retinanet_parser': {
+         'use_bfloat16': False,
+-        'output_size': [640, 640],
++        'output_size': [768, 768], # TODO: Change to [1024, 1024] for the last 50,000 steps
+         'num_channels': 3,
+         'match_threshold': 0.5,
+         'unmatched_threshold': 0.5,
+         'aug_rand_hflip': True,
+-        'aug_scale_min': 1.0,
+-        'aug_scale_max': 1.0,
++        'aug_scale_min': 0.9,
++        'aug_scale_max': 1.1,
+         'use_autoaugment': False,
+         'autoaugment_policy_name': 'v0',
+-        'skip_crowd_during_training': True,
+-        'max_num_instances': 100,
++        'skip_crowd_during_training': False,
++        'max_num_instances': 1000,
+     },
+     'resnet': {
+         'resnet_depth': 50,
+@@ -115,7 +113,7 @@ RETINANET_CFG = {
+     'fpn': {
+         'min_level': 3,
+         'max_level': 7,
+-        'fpn_feat_dims': 256,
++        'fpn_feat_dims': 512,
+         'use_separable_conv': False,
+         'batch_norm': {
+             'batch_norm_momentum': 0.997,
+@@ -126,7 +124,7 @@ RETINANET_CFG = {
+     'nasfpn': {
+         'min_level': 3,
+         'max_level': 7,
+-        'fpn_feat_dims': 256,
++        'fpn_feat_dims': 512,
+         'num_repeats': 5,
+         'use_separable_conv': False,
+         'dropblock': {
+@@ -144,10 +142,10 @@ RETINANET_CFG = {
+         'max_level': 7,
+         # Note that `num_classes` is the total number of classes including
+         # one background classes whose index is 0.
+-        'num_classes': 91,
++        'num_classes': 2,
+         'anchors_per_location': 9,
+         'retinanet_head_num_convs': 4,
+-        'retinanet_head_num_filters': 256,
++        'retinanet_head_num_filters': 512,
+         'use_separable_conv': False,
+         'batch_norm': {
+             'batch_norm_momentum': 0.997,
+@@ -156,22 +154,22 @@ RETINANET_CFG = {
+         },
+     },
+     'retinanet_loss': {
+-        'num_classes': 91,
++        'num_classes': 2,
+         'focal_loss_alpha': 0.25,
+         'focal_loss_gamma': 1.5,
+-        'huber_loss_delta': 0.1,
++        'huber_loss_delta': 0.05,
+         'box_loss_weight': 50,
+     },
+     'postprocess': {
+         'use_batched_nms': False,
+         'min_level': 3,
+         'max_level': 7,
+-        'max_total_size': 100,
++        'max_total_size': 1000,
+         'nms_iou_threshold': 0.5,
+-        'score_threshold': 0.05,
++        'score_threshold': 0.01,
+         'pre_nms_num_boxes': 5000,
+     },
+-    'enable_summary': False,
++    'enable_summary': True,
+ }
+ 
+ RETINANET_RESTRICTIONS = [
+diff --git a/official/vision/detection/dataloader/anchor.py b/official/vision/detection/dataloader/anchor.py
+index bb7fca8b..2547b5b5 100644
+--- a/official/vision/detection/dataloader/anchor.py
++++ b/official/vision/detection/dataloader/anchor.py
+@@ -193,13 +193,15 @@ class AnchorLabeler(object):
+         tf.equal(match_results, -2), -2 * tf.ones_like(cls_targets),
+         cls_targets)
+ 
++    ids = tf.where(tf.math.greater_equal(match_results, 0), match_results + 1, 0)
++
+     # Unpacks labels into multi-level representations.
+     cls_targets_dict = self._anchor.unpack_labels(cls_targets)
+     box_targets_dict = self._anchor.unpack_labels(box_targets)
+     num_positives = tf.reduce_sum(
+         input_tensor=tf.cast(tf.greater(matches.match_results, -1), tf.float32))
+ 
+-    return cls_targets_dict, box_targets_dict, num_positives
++    return cls_targets_dict, box_targets_dict, ids, num_positives
+ 
+ 
+ class RpnAnchorLabeler(AnchorLabeler):
+diff --git a/official/vision/detection/dataloader/retinanet_parser.py b/official/vision/detection/dataloader/retinanet_parser.py
+index 3b06303b..40af1393 100644
+--- a/official/vision/detection/dataloader/retinanet_parser.py
++++ b/official/vision/detection/dataloader/retinanet_parser.py
+@@ -262,7 +262,7 @@ class Parser(object):
+         self._aspect_ratios, self._anchor_size, (image_height, image_width))
+     anchor_labeler = anchor.AnchorLabeler(
+         input_anchor, self._match_threshold, self._unmatched_threshold)
+-    (cls_targets, box_targets, num_positives) = anchor_labeler.label_anchors(
++    (cls_targets, box_targets, id_targets, num_positives) = anchor_labeler.label_anchors(
+         boxes,
+         tf.cast(tf.expand_dims(classes, axis=1), tf.float32))
+ 
+@@ -274,6 +274,7 @@ class Parser(object):
+     labels = {
+         'cls_targets': cls_targets,
+         'box_targets': box_targets,
++        'id_targets': id_targets,
+         'anchor_boxes': input_anchor.multilevel_boxes,
+         'num_positives': num_positives,
+         'image_info': image_info,
+@@ -322,7 +323,7 @@ class Parser(object):
+         self._aspect_ratios, self._anchor_size, (image_height, image_width))
+     anchor_labeler = anchor.AnchorLabeler(
+         input_anchor, self._match_threshold, self._unmatched_threshold)
+-    (cls_targets, box_targets, num_positives) = anchor_labeler.label_anchors(
++    (cls_targets, box_targets, _, num_positives) = anchor_labeler.label_anchors(
+         boxes,
+         tf.cast(tf.expand_dims(classes, axis=1), tf.float32))
+ 
+@@ -425,7 +426,7 @@ class Parser(object):
+       # Assigns anchors.
+       anchor_labeler = anchor.AnchorLabeler(
+           input_anchor, self._match_threshold, self._unmatched_threshold)
+-      (cls_targets, box_targets, num_positives) = anchor_labeler.label_anchors(
++      (cls_targets, box_targets, _, num_positives) = anchor_labeler.label_anchors(
+           boxes,
+           tf.cast(tf.expand_dims(classes, axis=1), tf.float32))
+       labels['cls_targets'] = cls_targets
+diff --git a/official/vision/detection/evaluation/coco_evaluator.py b/official/vision/detection/evaluation/coco_evaluator.py
+index aed5cc0e..c312cf19 100644
+--- a/official/vision/detection/evaluation/coco_evaluator.py
++++ b/official/vision/detection/evaluation/coco_evaluator.py
+@@ -37,6 +37,7 @@ from absl import logging
+ from pycocotools import cocoeval
+ import six
+ import tensorflow.compat.v2 as tf
++import json
+ 
+ from official.vision.detection.evaluation import coco_utils
+ from official.vision.detection.utils import class_utils
+@@ -140,6 +141,44 @@ class COCOEvaluator(object):
+       coco_metric: float numpy array with shape [24] representing the
+         coco-style evaluation metrics (box and mask).
+     """
++
++    # TODO: Ugly HACK - we just dump the detections here to access them later for the PR curve.
++    json_ann = []
++    num_batches = len(self._groundtruths['source_id'])
++    batch_size = self._groundtruths['source_id'][0].shape[0]
++    for i in range(num_batches):
++      boxes = self._groundtruths['boxes'][i]
++      for j in range(batch_size):
++        image_ann = []
++        num_instances = self._groundtruths['num_detections'][i][j][0]
++        for k in range(num_instances):
++          y1 = float(boxes[j, k, 0])
++          x1 = float(boxes[j, k, 1])
++          y2 = float(boxes[j, k, 2])
++          x2 = float(boxes[j, k, 3])
++          image_ann += [ [x1, y1, x2, y2] ]
++        json_ann += [image_ann]
++
++    json_det = []
++    max_num_detections = self._predictions['detection_classes'][0].shape[1]
++    for i in range(num_batches):
++      for j in range(batch_size):
++        image_det = []
++        for k in range(max_num_detections):
++          y1, x1, y2, x2 = self._predictions['detection_boxes'][i][j, k]
++          score = self._predictions['detection_scores'][i][j, k]
++          image_det += [ [float(x1), float(y1), float(x2), float(y2), float(score)] ]
++        json_det += [image_det]
++
++    json_data = {
++        'detections': json_det,
++        'annotations': json_ann
++        }
++
++    # TODO: Adjust this. Hardcoding this is very ugly.
++    with open('/tmp/results.json', 'w') as outfile:
++      json.dump(json_data, outfile)
++
+     if not self._annotation_file:
+       logging.info('Thre is no annotation_file in COCOEvaluator.')
+       gt_dataset = coco_utils.convert_groundtruths_to_coco_dataset(
+diff --git a/official/vision/detection/executor/detection_executor.py b/official/vision/detection/executor/detection_executor.py
+index aef17f41..776963de 100644
+--- a/official/vision/detection/executor/detection_executor.py
++++ b/official/vision/detection/executor/detection_executor.py
+@@ -98,7 +98,7 @@ class DetectionDistributedExecutor(executor.DistributedExecutor):
+         inputs, labels = inputs
+         model_outputs = model(inputs, training=False)
+         if self._predict_post_process_fn:
+-          labels, prediction_outputs = self._predict_post_process_fn(
++          labels, prediction_outputs = self._predict_post_process_fn(inputs,
+               labels, model_outputs)
+         return labels, prediction_outputs
+ 
+diff --git a/official/vision/detection/modeling/architecture/heads.py b/official/vision/detection/modeling/architecture/heads.py
+index 2aa04797..2aad0bae 100644
+--- a/official/vision/detection/modeling/architecture/heads.py
++++ b/official/vision/detection/modeling/architecture/heads.py
+@@ -328,13 +328,17 @@ class RetinanetHead(object):
+     self._num_convs = num_convs
+     self._num_filters = num_filters
+     self._use_separable_conv = use_separable_conv
++    self._feature_len = 32 # TODO: Do not hardcode this!
+ 
+     with tf.name_scope('class_net') as scope_name:
+       self._class_name_scope = tf.name_scope(scope_name)
+     with tf.name_scope('box_net') as scope_name:
+       self._box_name_scope = tf.name_scope(scope_name)
++    with tf.name_scope('feature_net') as scope_name:
++      self._feature_name_scope = tf.name_scope(scope_name)
+     self._build_class_net_layers(batch_norm_relu)
+     self._build_box_net_layers(batch_norm_relu)
++    self._build_feature_net_layers(batch_norm_relu)
+ 
+   def _class_net_batch_norm_name(self, i, level):
+     return 'class-%d-%d' % (i, level)
+@@ -342,6 +346,9 @@ class RetinanetHead(object):
+   def _box_net_batch_norm_name(self, i, level):
+     return 'box-%d-%d' % (i, level)
+ 
++  def _feature_net_batch_norm_name(self, i, level):
++    return 'feature-%d-%d' % (i, level)
++
+   def _build_class_net_layers(self, batch_norm_relu):
+     """Build re-usable layers for class prediction network."""
+     if self._use_separable_conv:
+@@ -430,10 +437,40 @@ class RetinanetHead(object):
+         name = self._box_net_batch_norm_name(i, level)
+         self._box_batch_norm_relu[name] = batch_norm_relu(name=name)
+ 
++  def _build_feature_net_layers(self, batch_norm_relu):
++    """Build re-usable layers for box prediction network."""
++    if self._use_separable_conv:
++      assert 0
++
++    self._feature_predict = tf.keras.layers.Conv2D(
++          self._feature_len * self._anchors_per_location,
++          kernel_size=(3, 3),
++          bias_initializer=tf.zeros_initializer(),
++          kernel_initializer=tf.keras.initializers.RandomNormal(stddev=1e-5),
++          padding='same',
++          name='feature-predict')
++    self._feature_conv = []
++    self._feature_batch_norm_relu = {}
++    for i in range(self._num_convs):
++      self._feature_conv.append(
++        tf.keras.layers.Conv2D(
++                self._num_filters,
++                kernel_size=(3, 3),
++                activation=None,
++                bias_initializer=tf.zeros_initializer(),
++                kernel_initializer=tf.keras.initializers.RandomNormal(
++                    stddev=0.01),
++                padding='same',
++                name='feature-' + str(i)))
++      for level in range(self._min_level, self._max_level + 1):
++        name = self._feature_net_batch_norm_name(i, level)
++        self._feature_batch_norm_relu[name] = batch_norm_relu(name=name)
++
+   def __call__(self, fpn_features, is_training=None):
+     """Returns outputs of RetinaNet head."""
+     class_outputs = {}
+     box_outputs = {}
++    feature_outputs = {}
+     with backend.get_graph().as_default(), tf.name_scope('retinanet'):
+       for level in range(self._min_level, self._max_level + 1):
+         features = fpn_features[level]
+@@ -442,7 +479,9 @@ class RetinanetHead(object):
+             features, level, is_training=is_training)
+         box_outputs[level] = self.box_net(
+             features, level, is_training=is_training)
+-    return class_outputs, box_outputs
++        feature_outputs[level] = self.feature_net(
++            features, level, is_training=is_training)
++    return class_outputs, box_outputs, feature_outputs
+ 
+   def class_net(self, features, level, is_training):
+     """Class prediction network for RetinaNet."""
+@@ -474,6 +513,25 @@ class RetinanetHead(object):
+       boxes = self._box_predict(features)
+     return boxes
+ 
++  def feature_net(self, features, level, is_training=None):
++    """Feature network for RetinaNet."""
++    with self._feature_name_scope:
++      for i in range(self._num_convs):
++        features = self._feature_conv[i](features)
++        # The convolution layers in the box net are shared among all levels, but
++        # each level has its batch normlization to capture the statistical
++        # difference among different levels.
++        name = self._feature_net_batch_norm_name(i, level)
++        features = self._feature_batch_norm_relu[name](
++            features, is_training=is_training)
++
++      features = self._feature_predict(features)
++      n, h, w, c = features.shape.as_list()
++      features = tf.reshape(features, [-1, int(h * w * c / self._feature_len), self._feature_len])
++      features = tf.math.l2_normalize(features, axis=-1)
++      features = tf.reshape(features, [-1, h, w, c])
++    return features
++
+ 
+ # TODO(yeqing): Refactor this class when it is ready for var_scope reuse.
+ class ShapemaskPriorHead(object):
+diff --git a/official/vision/detection/modeling/base_model.py b/official/vision/detection/modeling/base_model.py
+index ae36c990..1bbaebad 100644
+--- a/official/vision/detection/modeling/base_model.py
++++ b/official/vision/detection/modeling/base_model.py
+@@ -26,6 +26,7 @@ import six
+ from absl import logging
+ 
+ import tensorflow.compat.v2 as tf
++import tensorflow_addons as tfa
+ from official.vision.detection.modeling import checkpoint_utils
+ from official.vision.detection.modeling import learning_rates
+ 
+@@ -51,6 +52,8 @@ class OptimizerFactory(object):
+       self._optimizer = tf.keras.optimizers.Adadelta
+     elif params.type == 'adagrad':
+       self._optimizer = tf.keras.optimizers.Adagrad
++    elif params.type == 'lamb':
++        self._optimizer = tfa.optimizers.LAMB
+     elif params.type == 'rmsprop':
+       self._optimizer = functools.partial(
+           tf.keras.optimizers.RMSProp, momentum=params.momentum)
+diff --git a/official/vision/detection/modeling/losses.py b/official/vision/detection/modeling/losses.py
+index 84e2b8fd..2bf657b7 100644
+--- a/official/vision/detection/modeling/losses.py
++++ b/official/vision/detection/modeling/losses.py
+@@ -45,6 +45,10 @@ def focal_loss(logits, targets, alpha, gamma, normalizer):
+     positive_label_mask = tf.math.equal(targets, 1.0)
+     cross_entropy = (
+         tf.nn.sigmoid_cross_entropy_with_logits(labels=targets, logits=logits))
++
++    # HACK: We actually just use CE instead of focal loss. This was more stable for us.
++    return cross_entropy
++
+     # Below are comments/derivations for computing modulator.
+     # For brevity, let x = logits,  z = targets, r = gamma, and p_t = sigmod(x)
+     # for positive samples and 1 - sigmoid(x) for negative examples.
+@@ -467,6 +471,95 @@ class RetinanetBoxLoss(object):
+     box_loss /= normalizer
+     return box_loss
+ 
++def smooth_l1_diff(diff):
++  diff = tf.abs(diff)
++  loss = tf.where(diff < 1.0, 0.5 * diff * diff, diff - 0.5)
++  return loss
++
++def get_pairwise_distances(features):
++  pairwise_distances_squared = tf.math.reduce_sum(tf.math.square(features), axis=1, keepdims=True) \
++      + tf.math.reduce_sum(tf.math.square(tf.transpose(features)), axis=0, keepdims=True) \
++      - 2.0 * tf.matmul(features, tf.transpose(features))
++
++  # Set small negatives (because of numeric instabilities) to zero
++  pairwise_distances_squared = tf.math.maximum(pairwise_distances_squared, 0.0)
++
++  # Explicitly set diagonals to zero
++  num_entries = tf.shape(features)[0]
++  mask = tf.ones_like(pairwise_distances_squared) - tf.linalg.diag(tf.ones([num_entries]))
++  pairwise_distances_squared = tf.math.multiply(pairwise_distances_squared, mask)
++  pairwise_distances_squared = tf.where(tf.math.greater(pairwise_distances_squared, 0.0), pairwise_distances_squared, 0.0)
++
++  pairwise_distances = tf.math.sqrt(pairwise_distances_squared)
++
++  return pairwise_distances
++
++def metric_loss(labels, embeddings, alpha = 0.2, beta=1.0):
++  with tf.device('/cpu:0'):
++    distances = get_pairwise_distances(embeddings)
++
++    labels = tf.reshape(labels, [-1, 1])
++    labels = tf.tile(labels, [1, tf.shape(labels)[0]])
++    adjacency = tf.math.equal(labels, tf.transpose(labels))
++    adjacency_not = tf.math.logical_not(adjacency)
++    mask_positives = tf.cast(adjacency, dtype=tf.dtypes.float32)
++    mask_negatives = tf.cast(adjacency_not, dtype=tf.dtypes.float32)
++
++    num_entries = tf.reduce_sum(mask_positives) + tf.reduce_sum(mask_negatives)
++
++    pos_dist = distances - (beta - alpha)
++    pos_dist = tf.math.maximum(pos_dist, 0.0)
++    loss_positives = pos_dist * mask_positives
++    loss_positives = tf.where(tf.math.greater(num_entries, 0.0),
++                              tf.reduce_sum(loss_positives) / num_entries,
++                              0.0)
++
++    neg_dist = (beta + alpha) - distances
++    neg_dist = tf.math.maximum(neg_dist, 0.0)
++    loss_negatives = neg_dist * mask_negatives
++    loss_negatives = tf.where(tf.math.greater(num_entries, 0.0),
++                              tf.reduce_sum(loss_negatives) / num_entries,
++                              0.0)
++
++    return loss_positives + loss_negatives
++
++class RetinanetFeatureLoss(object):
++  """RetinaNet feature loss."""
++
++  def __init__(self, params):
++    self.box_embedding_len = 32 # TODO: Do not hardcode this here!
++
++  def __call__(self, embeddings, ids):
++    ids = tf.unstack(ids, axis=0)
++
++    stacked_embeddings = []
++    for emb in embeddings.values():
++      emb = tf.reshape(emb, [len(ids), -1, self.box_embedding_len])
++      stacked_embeddings += [emb]
++    stacked_embeddings = tf.concat(stacked_embeddings, axis=1)
++    embeddings = tf.unstack(stacked_embeddings, axis=0)
++
++    return self._embedding_loss(embeddings, ids)
++
++  def _embedding_loss(self, embeddings, ids):
++    assignment_losses = []
++    for i in range(len(ids)): # iterate over images in batch
++      batch_box_ids = tf.reshape(ids[i], [-1])
++      batch_embeddings = tf.reshape(embeddings[i], [-1, self.box_embedding_len])
++
++      mask = tf.math.greater(batch_box_ids, 0)
++      num_mask = tf.reduce_sum(tf.cast(mask, tf.float32))
++      MAX_NUM_SAMPLES = 5000.0
++      EPS = 1e-5
++      samples = tf.random.normal(tf.shape(mask), num_mask / MAX_NUM_SAMPLES + EPS)
++      mask = tf.logical_and(mask, tf.less(samples, 1.0))
++      masked_embeddings = tf.boolean_mask(batch_embeddings, mask)
++      masked_box_ids = tf.boolean_mask(batch_box_ids, mask)
++      batch_assignment_loss = metric_loss(masked_box_ids, masked_embeddings)
++      batch_assignment_loss = tf.reduce_mean(batch_assignment_loss)
++      assignment_losses += [batch_assignment_loss]
++    assignment_loss = tf.stack(assignment_losses)
++    return tf.reduce_sum(assignment_loss)
+ 
+ class ShapemaskMseLoss(object):
+   """ShapeMask mask Mean Squared Error loss function wrapper."""
+diff --git a/official/vision/detection/modeling/retinanet_model.py b/official/vision/detection/modeling/retinanet_model.py
+index d3bdbfcb..b3573cac 100644
+--- a/official/vision/detection/modeling/retinanet_model.py
++++ b/official/vision/detection/modeling/retinanet_model.py
+@@ -23,6 +23,12 @@ import numpy as np
+ from absl import logging
+ import tensorflow.compat.v2 as tf
+ 
++import numpy as np
++import scipy as sp
++import skimage.draw
++import PIL
++import os
++
+ from tensorflow.python.keras import backend
+ from official.vision.detection.dataloader import mode_keys
+ from official.vision.detection.evaluation import factory as eval_factory
+@@ -31,6 +37,57 @@ from official.vision.detection.modeling import losses
+ from official.vision.detection.modeling.architecture import factory
+ from official.vision.detection.ops import postprocess_ops
+ 
++def write_debug_boundingbox_img(boxes, scores, image, key):
++  key = key.numpy().astype(str)[0]
++  image = (image.numpy()[0, :, :, :] + 3.0) / 6.0 * 255.0
++
++  # TODO: Do not hardcode this!
++  image_path = os.path.join('/tmp', key + '.png')
++  inference_height = np.shape(image)[0]
++  inference_width = np.shape(image)[1]
++  color = (255, 0, 0)
++
++  boxes = tf.reshape(boxes, [-1, 4])
++  boxes = tf.unstack(boxes, axis=0)
++  scores = tf.reshape(scores, [-1])
++  scores = tf.unstack(scores)
++  i = 0
++  for box in boxes:
++    s = scores[i]
++    i += 1
++    if s < 0.5:
++      continue
++    box = box.numpy()
++    x1 = np.clip(box[1], 0, inference_width - 1)
++    y1 = np.clip(box[0], 0, inference_height - 1)
++    x2 = np.clip(box[3], 0, inference_width - 1)
++    y2 = np.clip(box[2], 0, inference_height - 1)
++    for coords in [[int(y1), int(x1), int(y1), int(x2)],
++                   [int(y1), int(x2), int(y2), int(x2)],
++                   [int(y2), int(x2), int(y2), int(x1)],
++                   [int(y2), int(x1), int(y1), int(x1)]]:
++        rr, cc = skimage.draw.line(*coords)
++        image[rr, cc, :] = color
++        if coords[0] == coords[2]:
++          if coords[0] > 0:
++            image[rr - 1, cc, :] = color
++          if coords[0] < inference_height - 1:
++            image[rr + 1, cc, :] = color
++        if coords[1] == coords[3]:
++          if coords[1] > 0:
++            image[rr, cc - 1, :] = color
++          if coords[1] < inference_width - 1:
++            image[rr, cc + 1, :] = color
++  image = PIL.Image.fromarray(image.astype(np.uint8), 'RGB')
++  image.save(image_path)
++
++class WeightKendall(tf.keras.layers.Layer):
++  def __init__(self, name):
++    super().__init__(name=name)
++    self.factor = self.add_weight("s", [], initializer=tf.ones_initializer)
++
++  def call(self, loss):
++    return loss / (2.0 * self.factor * self.factor) + tf.math.log(self.factor)
+ 
+ class RetinanetModel(base_model.Model):
+   """RetinaNet model function."""
+@@ -49,9 +106,13 @@ class RetinanetModel(base_model.Model):
+     # Loss function.
+     self._cls_loss_fn = losses.RetinanetClassLoss(params.retinanet_loss)
+     self._box_loss_fn = losses.RetinanetBoxLoss(params.retinanet_loss)
+-    self._box_loss_weight = params.retinanet_loss.box_loss_weight
++    self._feature_loss_fn = losses.RetinanetFeatureLoss(params.retinanet_loss)
+     self._keras_model = None
+ 
++    self._weight_cls = WeightKendall('w_cls')
++    self._weight_box = WeightKendall('w_box')
++    self._weight_feature = WeightKendall('w_feature')
++
+     # Predict function.
+     self._generate_detections_fn = postprocess_ops.MultilevelDetectionGenerator(
+         params.postprocess)
+@@ -77,7 +138,7 @@ class RetinanetModel(base_model.Model):
+         inputs, is_training=(mode == mode_keys.TRAIN))
+     fpn_features = self._fpn_fn(
+         backbone_features, is_training=(mode == mode_keys.TRAIN))
+-    cls_outputs, box_outputs = self._head_fn(
++    cls_outputs, box_outputs, feature_outputs = self._head_fn(
+         fpn_features, is_training=(mode == mode_keys.TRAIN))
+ 
+     if self._use_bfloat16:
+@@ -85,10 +146,12 @@ class RetinanetModel(base_model.Model):
+       for level in levels:
+         cls_outputs[level] = tf.cast(cls_outputs[level], tf.float32)
+         box_outputs[level] = tf.cast(box_outputs[level], tf.float32)
++        feature_outputs[level] = tf.cast(feature_outputs[level], tf.float32)
+ 
+     model_outputs = {
+         'cls_outputs': cls_outputs,
+         'box_outputs': box_outputs,
++        'feature_outputs': feature_outputs,
+     }
+     return model_outputs
+ 
+@@ -106,7 +169,12 @@ class RetinanetModel(base_model.Model):
+       box_loss = self._box_loss_fn(outputs['box_outputs'],
+                                    labels['box_targets'],
+                                    labels['num_positives'])
+-      model_loss = cls_loss + self._box_loss_weight * box_loss
++      feature_loss = self._feature_loss_fn(outputs['feature_outputs'],
++                                           labels['id_targets'])
++      cls_loss = self._weight_cls(cls_loss)
++      box_loss = self._weight_box(box_loss)
++      feature_loss = self._weight_feature(feature_loss)
++      model_loss = cls_loss + box_loss + feature_loss
+       l2_regularization_loss = self.weight_decay_loss(self._l2_weight_decay,
+                                                       trainable_variables)
+       total_loss = model_loss + l2_regularization_loss
+@@ -114,6 +182,7 @@ class RetinanetModel(base_model.Model):
+           'total_loss': total_loss,
+           'cls_loss': cls_loss,
+           'box_loss': box_loss,
++          'feature_loss': feature_loss,
+           'model_loss': model_loss,
+           'l2_regularization_loss': l2_regularization_loss,
+       }
+@@ -133,7 +202,7 @@ class RetinanetModel(base_model.Model):
+ 
+     return self._keras_model
+ 
+-  def post_processing(self, labels, outputs):
++  def post_processing(self, inputs, labels, outputs):
+     required_output_fields = ['cls_outputs', 'box_outputs']
+     for field in required_output_fields:
+       if field not in outputs:
+@@ -144,9 +213,11 @@ class RetinanetModel(base_model.Model):
+       if field not in labels:
+         raise ValueError('"%s" is missing in outputs, requried %s found %s',
+                          field, required_label_fields, labels.keys())
++
+     boxes, scores, classes, valid_detections = self._generate_detections_fn(
+-        outputs['box_outputs'], outputs['cls_outputs'],
+-        labels['anchor_boxes'], labels['image_info'][:, 1:2, :])
++        outputs['box_outputs'], outputs['cls_outputs'], outputs['feature_outputs'],
++        labels['anchor_boxes'], labels['groundtruths']['boxes'], labels['image_info'][:, 1:2, :])
++
+     # Discards the old output tensors to save memory. The `cls_outputs` and
+     # `box_outputs` are pretty big and could potentiall lead to memory issue.
+     outputs = {
+@@ -165,6 +236,9 @@ class RetinanetModel(base_model.Model):
+       labels['areas'] = labels['groundtruths']['areas']
+       labels['is_crowds'] = labels['groundtruths']['is_crowds']
+ 
++    # TODO: You can uncomment the following to generate debug images
++    # tf.py_function(write_debug_boundingbox_img, [boxes, scores, inputs, labels['groundtruths']['source_id']], [])
++
+     return labels, outputs
+ 
+   def eval_metrics(self):
+diff --git a/official/vision/detection/ops/postprocess_ops.py b/official/vision/detection/ops/postprocess_ops.py
+index 209555e7..75c6d746 100644
+--- a/official/vision/detection/ops/postprocess_ops.py
++++ b/official/vision/detection/ops/postprocess_ops.py
+@@ -21,6 +21,8 @@ from __future__ import print_function
+ import functools
+ import tensorflow.compat.v2 as tf
+ 
++import numpy as np
++
+ from official.vision.detection.ops import nms
+ from official.vision.detection.utils import box_utils
+ 
+@@ -28,11 +30,8 @@ from official.vision.detection.utils import box_utils
+ def generate_detections_factory(params):
+   """Factory to select function to generate detection."""
+   if params.use_batched_nms:
+-    func = functools.partial(
+-        _generate_detections_batched,
+-        max_total_size=params.max_total_size,
+-        nms_iou_threshold=params.nms_iou_threshold,
+-        score_threshold=params.score_threshold)
++    # HACK - we do not support this for now
++    assert 0
+   else:
+     func = functools.partial(
+         _generate_detections,
+@@ -73,8 +72,184 @@ def _select_top_k_scores(scores_in, pre_nms_num_detections):
+                       [0, 2, 1]), tf.transpose(top_k_indices, [0, 2, 1])
+ 
+ 
++def calcIou(box1, box2):
++  b1y1, b1x1, b1y2, b1x2 = box1.tolist()
++  b2y1, b2x1, b2y2, b2x2 = box2.tolist()
++
++  maxX1 = max(b1x1, b2x1)
++  maxY1 = max(b1y1, b2y1)
++  minX2 = min(b1x2, b2x2)
++  minY2 = min(b1y2, b2y2)
++
++  b1Area = (b1x2 - b1x1) * (b1y2 - b1y1)
++  b2Area = (b2x2 - b2x1) * (b2y2 - b2y1)
++
++  interWidth = max(minX2 - maxX1, 0)
++  interHeight = max(minY2 - maxY1, 0)
++  interArea = interWidth * interHeight;
++  unionArea = b1Area + b2Area - interArea;
++  if unionArea == 0:
++    return 0.0
++  return interArea / unionArea;
++
++def calcFeatureDist(feature1, feature2):
++  return np.linalg.norm(feature1 - feature2, 2)
++
++def feature_nms(scores, boxes, features, maxTotalSize, lowOverlapThreshold=0.1, highOverlapThreshold=0.9): #HACK 0.1, ... 0.9
++  # TODO: We can ignore the batch dimension here because we only evaluate with batch size 1...
++  scores = np.squeeze(scores.numpy())
++  boxes = np.squeeze(boxes.numpy())
++  features = np.squeeze(features.numpy())
++
++  UNDECIDED = 0
++  PICKED = 1
++  NOT_PICKED = 2
++
++  idxs = np.argsort(scores)
++  scores = np.take(scores, idxs, axis=0)
++  boxes = np.take(boxes, idxs, axis=0)
++  features = np.take(features, idxs, axis=0)
++  states = [UNDECIDED for i in range(boxes.shape[0])]
++  out_scores = []
++  out_boxes = []
++  num = 0
++
++  for outer_idx in range(boxes.shape[0] - 1, -1, -1):
++    if states[outer_idx] != UNDECIDED:
++      continue
++    states[outer_idx] = PICKED
++    out_scores += [ scores[outer_idx] ]
++    out_boxes += [ boxes[outer_idx] ]
++    num += 1
++    if num == maxTotalSize:
++      break
++
++    for inner_idx in range(outer_idx - 1, -1, -1):
++      if states[inner_idx] == UNDECIDED:
++        iou = calcIou(boxes[outer_idx, :], boxes[inner_idx, :])
++      if iou > highOverlapThreshold:
++        isSame = True
++      elif iou <= lowOverlapThreshold:
++        isSame = False
++      else:
++        featureDist = calcFeatureDist(features[outer_idx, :], features[inner_idx, :])
++        isSame = featureDist <= 1.0
++
++      if isSame:
++        states[inner_idx] = NOT_PICKED
++
++  for _ in range(num, maxTotalSize, 1):
++    out_boxes += [ np.zeros([4]) ]
++    out_scores += [ np.zeros([]) ]
++
++  out_scores = np.expand_dims(np.stack(out_scores, axis=0), axis=0)
++  out_boxes = np.expand_dims(np.stack(out_boxes, axis=0), axis=0)
++
++  return out_scores, out_boxes
++
++def soft_nms(scores, boxes, maxTotalSize):
++  # TODO: We can ignore the batch dimension here because we only evaluate with batch size 1...
++  scores = np.squeeze(scores.numpy())
++  boxes = np.squeeze(boxes.numpy())
++
++  idxs = np.argsort(scores)
++  scores = np.take(scores, idxs, axis=0)
++  boxes = np.take(boxes, idxs, axis=0)
++
++  for outer_idx in range(boxes.shape[0] - 1, -1, -1):
++    for inner_idx in range(outer_idx - 1, -1, -1):
++      iou = calcIou(boxes[outer_idx, :], boxes[inner_idx, :])
++      if iou > 0.0:
++        scores[inner_idx] = scores[inner_idx] * np.exp(-iou*iou / 0.5)
++
++  idxs = np.argsort(scores)
++  idxs = np.flip(idxs)
++  num = idxs.shape[0]
++  idxs = idxs[0:min(maxTotalSize, num)]
++  out_scores = np.take(scores, idxs, axis=0)
++  out_boxes = np.take(boxes, idxs, axis=0)
++
++  for _ in range(num, maxTotalSize, 1):
++    out_boxes += [ np.zeros([4]) ]
++    out_scores += [ np.zeros([]) ]
++
++  out_scores = np.expand_dims(np.stack(out_scores, axis=0), axis=0)
++  out_boxes = np.expand_dims(np.stack(out_boxes, axis=0), axis=0)
++
++  return out_scores, out_boxes
++
++def adaptive_nms(scores, boxes, maxTotalSize, gt_boxes):
++  # TODO: We can ignore the batch dimension here because we only evaluate with batch size 1...
++  scores = np.squeeze(scores.numpy())
++  boxes = np.squeeze(boxes.numpy())
++  gt_boxes = np.squeeze(gt_boxes.numpy())
++
++  UNDECIDED = 0
++  PICKED = 1
++  NOT_PICKED = 2
++
++  idxs = np.argsort(scores)
++  scores = np.take(scores, idxs, axis=0)
++  boxes = np.take(boxes, idxs, axis=0)
++  states = [UNDECIDED for i in range(boxes.shape[0])]
++  out_scores = []
++  out_boxes = []
++  num = 0
++
++  # Calculate NMS threshold for ground truth boxes
++  gt_thresholds = []
++  for gt_idx_1 in range(gt_boxes.shape[0]):
++    threshold = 0.0
++    for gt_idx_2 in range(gt_boxes.shape[0]):
++      if gt_idx_1 == gt_idx_2:
++        continue
++      gt_iou = calcIou(gt_boxes[gt_idx_1, :], gt_boxes[gt_idx_2, :])
++      threshold = max(threshold, gt_iou)
++    gt_thresholds += [threshold]
++
++  for outer_idx in range(boxes.shape[0] - 1, -1, -1):
++    if states[outer_idx] != UNDECIDED:
++      continue
++    states[outer_idx] = PICKED
++    out_scores += [ scores[outer_idx] ]
++    out_boxes += [ boxes[outer_idx] ]
++    num += 1
++    if num == maxTotalSize:
++      break
++
++    # Search for the GT box with the highest IoU for the detection.
++    # If we find one we will use the corresponding NMS threshold.
++    threshold = 0.0
++    idx = -1
++    for gt_idx in range(gt_boxes.shape[0]):
++      gt_iou = calcIou(gt_boxes[gt_idx, :], boxes[outer_idx, :])
++      if gt_iou > threshold:
++        idx = gt_idx
++        threshold = gt_iou
++    if idx >= 0:
++      threshold = gt_thresholds[idx]
++    # The mimimum threshold is always 0.5
++    threshold = max(threshold, 0.5)
++
++    for inner_idx in range(outer_idx - 1, -1, -1):
++      if states[inner_idx] == UNDECIDED:
++        iou = calcIou(boxes[outer_idx, :], boxes[inner_idx, :])
++      if iou > threshold:
++        states[inner_idx] = NOT_PICKED
++
++  for _ in range(num, maxTotalSize, 1):
++    out_boxes += [ np.zeros([4]) ]
++    out_scores += [ np.zeros([]) ]
++
++  out_scores = np.expand_dims(np.stack(out_scores, axis=0), axis=0)
++  out_boxes = np.expand_dims(np.stack(out_boxes, axis=0), axis=0)
++
++  return out_scores, out_boxes
++
+ def _generate_detections(boxes,
+                          scores,
++                         features,
++                         gt_boxes,
+                          max_total_size=100,
+                          nms_iou_threshold=0.3,
+                          score_threshold=0.05,
+@@ -112,6 +287,7 @@ def _generate_detections(boxes,
+     valid_detections: `int` Tensor of shape [batch_size] only the top
+       `valid_detections` boxes are valid detections.
+   """
++
+   with tf.name_scope('generate_detections'):
+     nmsed_boxes = []
+     nmsed_classes = []
+@@ -120,6 +296,7 @@ def _generate_detections(boxes,
+     batch_size, _, num_classes_for_box, _ = boxes.get_shape().as_list()
+     _, total_anchors, num_classes = scores.get_shape().as_list()
+     # Selects top pre_nms_num scores and indices before NMS.
++
+     scores, indices = _select_top_k_scores(
+         scores, min(total_anchors, pre_nms_num_boxes))
+     for i in range(num_classes):
+@@ -127,16 +304,23 @@ def _generate_detections(boxes,
+       scores_i = scores[:, :, i]
+       # Obtains pre_nms_num_boxes before running NMS.
+       boxes_i = tf.gather(boxes_i, indices[:, :, i], batch_dims=1, axis=1)
++      features_i = tf.gather(features, indices[:, :, i], batch_dims=1, axis=1)
+ 
+       # Filter out scores.
+       boxes_i, scores_i = box_utils.filter_boxes_by_scores(
+           boxes_i, scores_i, min_score_threshold=score_threshold)
+ 
++      # TODO replace this with one of the lines below, depending on which NMS you want to use.
+       (nmsed_scores_i, nmsed_boxes_i) = nms.sorted_non_max_suppression_padded(
+           tf.cast(scores_i, tf.float32),
+           tf.cast(boxes_i, tf.float32),
+           max_total_size,
+           iou_threshold=nms_iou_threshold)
++
++      #(nmsed_scores_i, nmsed_boxes_i) = tf.py_function(feature_nms, [scores_i, boxes_i, features_i, max_total_size], [tf.float32, tf.float32])
++      #(nmsed_scores_i, nmsed_boxes_i) = tf.py_function(soft_nms, [scores_i, boxes_i, max_total_size], [tf.float32, tf.float32])
++      #(nmsed_scores_i, nmsed_boxes_i) = tf.py_function(adaptive_nms, [scores_i, boxes_i, max_total_size, gt_boxes], [tf.float32, tf.float32])
++
+       nmsed_classes_i = tf.fill([batch_size, max_total_size], i)
+       nmsed_boxes.append(nmsed_boxes_i)
+       nmsed_scores.append(nmsed_scores_i)
+@@ -299,10 +483,11 @@ class MultilevelDetectionGenerator(object):
+     self._min_level = params.min_level
+     self._max_level = params.max_level
+ 
+-  def __call__(self, box_outputs, class_outputs, anchor_boxes, image_shape):
++  def __call__(self, box_outputs, class_outputs, feature_outputs, anchor_boxes, gt_boxes, image_shape):
+     # Collects outputs from all levels into a list.
+     boxes = []
+     scores = []
++    features = []
+     for i in range(self._min_level, self._max_level + 1):
+       box_outputs_i_shape = tf.shape(box_outputs[i])
+       batch_size = box_outputs_i_shape[0]
+@@ -320,17 +505,20 @@ class MultilevelDetectionGenerator(object):
+       anchor_boxes_i = tf.reshape(anchor_boxes[i], [batch_size, -1, 4])
+       box_outputs_i = tf.reshape(box_outputs[i], [batch_size, -1, 4])
+       boxes_i = box_utils.decode_boxes(box_outputs_i, anchor_boxes_i)
++      features_i = tf.reshape(feature_outputs[i], [batch_size, -1, 32]) # TODO do not hardcode feature length
+ 
+       # Box clipping.
+       boxes_i = box_utils.clip_boxes(boxes_i, image_shape)
+ 
+       boxes.append(boxes_i)
+       scores.append(scores_i)
++      features.append(features_i)
+     boxes = tf.concat(boxes, axis=1)
+     scores = tf.concat(scores, axis=1)
++    features = tf.concat(features, axis=1)
+ 
+     nmsed_boxes, nmsed_scores, nmsed_classes, valid_detections = (
+-        self._generate_detections(tf.expand_dims(boxes, axis=2), scores))
++        self._generate_detections(tf.expand_dims(boxes, axis=2), scores, features, gt_boxes))
+ 
+     # Adds 1 to offset the background class which has index 0.
+     nmsed_classes += 1
+@@ -343,7 +531,7 @@ class GenericDetectionGenerator(object):
+   def __init__(self, params):
+     self._generate_detections = generate_detections_factory(params)
+ 
+-  def __call__(self, box_outputs, class_outputs, anchor_boxes, image_shape):
++  def __call__(self, box_outputs, class_outputs, anchor_boxes, gt_boxes, image_shape):
+     """Generate final detections.
+ 
+     Args:
+-- 
+2.17.1
+
