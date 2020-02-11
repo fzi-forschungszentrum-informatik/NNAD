@@ -1,0 +1,48 @@
+# Path settings
+state_dir: ./training_state
+out_dir: ./test_out
+
+# Dataset settings
+cityscapes_path: ./datasets/cityscapes
+kitti_path: ./datasets/kitti
+folder_ds_path: ./datasets/test_imgs
+webvision_path: ./datasets/webvision
+
+# Pretrain settings
+num_pretrain_classes: 1000
+pretrain_batch_size_per_gpu: 32
+pretrain_batch_norm: True
+
+# Select active datasets
+use_cityscapes_train: True
+use_cityscapes_train_extra: True
+use_cityscapes_val: True
+use_cityscapes_test: False
+use_kitti_train: False
+use_kitti_val: False
+use_kitti_test: False
+use_folder_ds: False
+
+# Image size settings
+train_image_width: 1536
+train_image_height: 768
+eval_image_width: 2048
+eval_image_height: 1024
+eval_horizontal_fov: 50
+
+# Training parameter settings
+max_steps: 300000
+batch_size_per_gpu: 1
+train_batch_norm: True
+
+base_learning_rate: 0.001
+
+# Label settings
+train_labels: True
+num_label_classes: 19
+
+# Bounding box settings
+train_boundingboxes: True
+num_bb_classes: 10
+boxes_per_pos: 145 # This has to match the target generation code!
+box_embedding_len: 64
