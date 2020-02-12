@@ -1,8 +1,7 @@
-# NNAD - Neural Networks for Automated Driving
+# Training code for "Simultaneous Object Detection and Semantic Segmentation"
 
-NNAD is a collection of scripts to train neural networks for automated driving.
-The trained network accepts camera images and outputs a semantic segmentation and detected objects.
-It is used on the research vehicles of ISPE-MPS at FZI Research Center for Information Technology.
+This is the code that was used to perform the experiments for the paper
+"Simultaneous Object Detection and Semantic Segmentation" (https://arxiv.org/abs/1905.02285).
 
 These scripts are licenced under the GPL-3.
 
