@@ -56,7 +56,7 @@ with tf.device('/cpu:0'):
 
 # Define the learning rate schedule
 def learning_rate_fn():
-    return config['base_learning_rate'] * tf.pow(global_step / config['max_steps'], 0.9)
+    return config['base_learning_rate'] * (1.0 - tf.pow(global_step / config['max_steps'], 0.9))
 
 with distribution_strategy.scope():
     # Create an optimizer, the network and the loss class
