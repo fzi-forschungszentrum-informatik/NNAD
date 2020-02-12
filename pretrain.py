@@ -27,6 +27,7 @@ import random
 
 import numpy as np
 import tensorflow as tf
+import tensorflow_addons as tfa
 
 from model.PretrainHead import *
 from model.Resnet import *
@@ -50,18 +51,18 @@ train_summary_writer = tf.summary.create_file_writer(os.path.join(config['state_
 # Create the dataset and the global step variable
 ds = Dataset(settings_path=config_path, mode='pretrain')
 with tf.device('/cpu:0'):
-    global_step = tf.Variable(0, 'global_step')
+    global_step = tf.Variable(0, 'global_pretrain_step')
 
 # Define a learning rate schedule
 max_pretrain_steps = 2500000
-pretrain_base_learning_rate = 1e-4
+pretrain_base_learning_rate = 1e-3
 
 def learning_rate_fn():
-    return tf.constant(pretrain_base_learning_rate)
+    return pretrain_base_learning_rate * (1.0 - tf.pow(global_step / max_pretrain_steps, 0.9))
 
 with distribution_strategy.scope():
     # Create an optimizer, the network and the loss class
-    opt = tf.keras.optimizers.SGD(learning_rate_fn, momentum=0.9)
+    opt = tfa.optimizers.LAMB(learning_rate_fn)
 
     # Models
     backbone = ResnetBackbone('backbone', pretrain=True)
@@ -113,7 +114,7 @@ with distribution_strategy.scope():
 
         # Write training progress to console
         if step % 10 == 0:
-            examples_per_step = config['batch_size_per_gpu'] * num_gpus
+            examples_per_step = config['pretrain_batch_size_per_gpu'] * num_gpus
             sec_per_batch = float(duration)
             examples_per_sec = examples_per_step / duration
 

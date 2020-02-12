@@ -27,6 +27,7 @@ import random
 
 import numpy as np
 import tensorflow as tf
+import tensorflow_addons as tfa
 
 from model.Heads import *
 from model.Resnet import *
@@ -60,7 +61,7 @@ def learning_rate_fn():
 
 with distribution_strategy.scope():
     # Create an optimizer, the network and the loss class
-    opt = tf.keras.optimizers.Adam(learning_rate_fn)
+    opt = tfa.optimizers.LAMB(learning_rate_fn)
 
     # Models
     backbone = ResnetBackbone('backbone')

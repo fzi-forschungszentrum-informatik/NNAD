@@ -18,6 +18,7 @@
 
 import tensorflow as tf
 from .constants import *
+from thirdparty.online_norm import *
 
 class ResnetModule(tf.keras.Model):
     def __init__(self, name, num_filters, stride=1, dilation_rate=1):
@@ -30,8 +31,8 @@ class ResnetModule(tf.keras.Model):
     def build(self, input_shapes):
         self.has_skip_conv = input_shapes[-1] != self.num_filters[-1] or self.stride > 1
 
-        self.bn1 = tf.keras.layers.BatchNormalization()
-        self.bn2 = tf.keras.layers.BatchNormalization()
+        self.bn1 = OnlineNorm()
+        self.bn2 = OnlineNorm()
 
         self.conv1 = tf.keras.layers.SeparableConv2D(
             self.num_filters[0],
@@ -53,7 +54,7 @@ class ResnetModule(tf.keras.Model):
             name='conv2')
 
         if self.has_skip_conv:
-            self.bn_skip = tf.keras.layers.BatchNormalization()
+            self.bn_skip = OnlineNorm()
 
             self.conv_skip = tf.keras.layers.Conv2D(self.num_filters[1],
                 (1, 1),
@@ -87,7 +88,7 @@ class ResnetBackbone(tf.keras.Model):
             kernel_regularizer=tf.keras.regularizers.l2(L2_REGULARIZER_WEIGHT),
             name='first_conv')
 
-        self.bn1 = tf.keras.layers.BatchNormalization()
+        self.bn1 = OnlineNorm()
         self.maxpool1 = tf.keras.layers.MaxPooling2D(2)
         self.maxpool2 = tf.keras.layers.MaxPooling2D(2)
 

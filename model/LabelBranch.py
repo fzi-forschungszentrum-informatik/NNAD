@@ -19,12 +19,13 @@
 import tensorflow as tf
 from .constants import *
 from .Resnet import *
+from thirdparty.online_norm import *
 
 class Upsample(tf.keras.Model):
     def __init__(self, name, factor, num_output_channels):
         super().__init__(name=name)
 
-        self.bn = tf.keras.layers.BatchNormalization()
+        self.bn = OnlineNorm()
 
         kernel_size = 2 * factor - factor % 2
         self.transposed_conv = tf.keras.layers.Conv2DTranspose(num_output_channels,

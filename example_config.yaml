@@ -35,7 +35,7 @@ max_steps: 300000
 batch_size_per_gpu: 1
 train_batch_norm: True
 
-base_learning_rate: 0.001
+base_learning_rate: 0.01
 
 # Label settings
 train_labels: True
