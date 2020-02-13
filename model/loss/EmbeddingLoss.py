@@ -45,7 +45,7 @@ class EmbeddingLoss(tf.keras.Model):
             batch_assignment_loss = tf.reduce_mean(batch_assignment_loss)
             assignment_losses += [batch_assignment_loss]
         assignment_loss = tf.stack(assignment_losses)
-        return tf.reduce_sum(assignment_loss)
+        return tf.reduce_mean(assignment_loss)
 
     def call(self, inputs, step):
         embeddings, ground_truth = inputs

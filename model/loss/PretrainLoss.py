@@ -36,7 +36,7 @@ class PretrainLoss(tf.keras.Model):
 
         gt_labels = tf.stop_gradient(gt_labels)
         loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=labels, labels=gt_labels)
-        loss = tf.reduce_sum(loss)
+        loss = tf.reduce_mean(loss)
 
         correct_prediction = tf.equal(tf.cast(tf.argmax(labels, 1), tf.int32), gt_labels)
         accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
