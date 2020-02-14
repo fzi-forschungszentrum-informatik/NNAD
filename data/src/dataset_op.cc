@@ -142,6 +142,10 @@ private:
 
     void createBBUtils(int width, int height) {
         m_bbutils.emplace_back(std::make_unique<BBUtils>(width, height, 8));
+        m_bbutils.emplace_back(std::make_unique<BBUtils>(width, height, 16));
+        m_bbutils.emplace_back(std::make_unique<BBUtils>(width, height, 32));
+        m_bbutils.emplace_back(std::make_unique<BBUtils>(width, height, 64));
+        m_bbutils.emplace_back(std::make_unique<BBUtils>(width, height, 128));
     };
 
     std::shared_ptr<ParallelDataset> m_dataset;

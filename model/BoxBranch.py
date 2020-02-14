@@ -79,13 +79,29 @@ class BoxBranch(tf.keras.Model):
     def __init__(self, name, config):
         super().__init__(name=name)
         self.core_branch = ResnetBranch('box_branch')
+
+        self.downsample1 = ResnetModule('downsample_1', [512, 512, 2048], stride=2)
+        self.downsample2 = ResnetModule('downsample_2', [512, 512, 2048], stride=2)
+        self.downsample3 = ResnetModule('downsample_3', [512, 512, 2048], stride=2)
+        self.downsample4 = ResnetModule('downsample_4', [512, 512, 2048], stride=2)
+
         self.decoder = BoxDecoder('decoder', config)
 
     def call(self, x, train_batch_norm=False):
         x = self.core_branch(x, train_batch_norm=train_batch_norm)
 
+        p3 = x
+        p4 = self.downsample1(p3, train_batch_norm=train_batch_norm)
+        p5 = self.downsample2(p4, train_batch_norm=train_batch_norm)
+        p6 = self.downsample3(p5, train_batch_norm=train_batch_norm)
+        p7 = self.downsample4(p6, train_batch_norm=train_batch_norm)
+
         res = []
-        res += [self.decoder(x, train_batch_norm=train_batch_norm)]
+        res += [self.decoder(p3, train_batch_norm=train_batch_norm)]
+        res += [self.decoder(p4, train_batch_norm=train_batch_norm)]
+        res += [self.decoder(p5, train_batch_norm=train_batch_norm)]
+        res += [self.decoder(p6, train_batch_norm=train_batch_norm)]
+        res += [self.decoder(p7, train_batch_norm=train_batch_norm)]
 
         box = tf.concat([entry[0] for entry in res], axis=1)
         cls = tf.concat([entry[1] for entry in res], axis=1)

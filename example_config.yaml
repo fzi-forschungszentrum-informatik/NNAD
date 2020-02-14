@@ -44,5 +44,5 @@ num_label_classes: 19
 # Bounding box settings
 train_boundingboxes: True
 num_bb_classes: 10
-boxes_per_pos: 145 # This has to match the target generation code!
-box_embedding_len: 64
+boxes_per_pos: 60 # This has to match the target generation code!
+box_embedding_len: 32
