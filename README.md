@@ -1,7 +1,7 @@
 # FeatureNMS: Non-Maximum Suppression by Learning Feature Embeddings
 
 This is the code for the paper "FeatureNMS: Non-Maximum Suppression by Learning
-Feature Embeddings".
+Feature Embeddings" (https://arxiv.org/abs/2002.07662).
 
 *PLEASE NOTE*: This code is far from production-quality. It just serves as a
 reference to reproduce the results from the paper.
