@@ -121,7 +121,7 @@ std::shared_ptr<DatasetEntry> RandomDataset::getNext()
 
 
 InterleaveDataset::InterleaveDataset(std::vector<std::shared_ptr<Dataset>> inputDatasets)
-    : m_inputDatasets(inputDatasets)
+    : m_inputDatasets(inputDatasets), m_activeInputDatasets(inputDatasets)
 {
     auto seed = std::chrono::high_resolution_clock::now().time_since_epoch().count();
     m_generator = std::mt19937(seed);
@@ -135,7 +135,7 @@ std::shared_ptr<DatasetEntry> InterleaveDataset::getNext()
         std::size_t listSize;
         {
             std::scoped_lock<std::mutex> lockGuard(m_datasetMutex);
-            listSize = m_inputDatasets.size();
+            listSize = m_activeInputDatasets.size();
             if (listSize == 0) {
                 return nullptr;
             }
@@ -145,13 +145,13 @@ std::shared_ptr<DatasetEntry> InterleaveDataset::getNext()
             std::scoped_lock<std::mutex> lockGuard(m_generatorMutex);
             idx = m_indexDistribution(m_generator);
         }
-        auto data = m_inputDatasets[idx]->getNext();
+        auto data = m_activeInputDatasets[idx]->getNext();
         if (data) {
             return data;
         } else {
             std::scoped_lock<std::mutex> lockGuard(m_datasetMutex);
-            if (listSize == m_inputDatasets.size()) {
-                m_inputDatasets.erase(m_inputDatasets.begin() + idx);
+            if (listSize == m_activeInputDatasets.size()) {
+                m_activeInputDatasets.erase(m_activeInputDatasets.begin() + idx);
             }
         }
     }

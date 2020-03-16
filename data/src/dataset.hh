@@ -89,7 +89,11 @@ public:
 
 private:
     std::mutex m_datasetMutex;
+
+    /* we need to keep a copy of all datasets around because they might still be
+     * accessed by another thread. Only delete datasets from the active set. */
     std::vector<std::shared_ptr<Dataset>> m_inputDatasets;
+    std::vector<std::shared_ptr<Dataset>> m_activeInputDatasets;
     std::mutex m_generatorMutex;
     std::mt19937 m_generator;
     std::uniform_int_distribution<std::size_t> m_indexDistribution;
