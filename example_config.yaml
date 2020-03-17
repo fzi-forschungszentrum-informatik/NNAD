@@ -16,8 +16,10 @@ pretrain_batch_norm: True
 # Select active datasets
 use_cityscapes_train: True
 use_cityscapes_train_extra: True
+use_cityscapes_train_bertha: False
 use_cityscapes_val: True
 use_cityscapes_test: False
+use_bdd100k_train_tracking: False
 use_kitti_train: False
 use_kitti_val: False
 use_kitti_test: False

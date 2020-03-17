@@ -46,16 +46,19 @@ public:
     std::vector<BoundingBoxDetection> bbListFromTargetsBuffer(pybind11::buffer objectnessScoresBuffer,
                                                               pybind11::buffer objectClassBuffer,
                                                               pybind11::buffer regressionBuffer,
+                                                              pybind11::buffer deltaRegressionBuffer,
                                                               pybind11::buffer embeddingBuffer, double threshold)
     {
         pybind11::buffer_info objectnessScoresBufferInfo = objectnessScoresBuffer.request();
         pybind11::buffer_info objectClassBufferInfo = objectClassBuffer.request();
         pybind11::buffer_info regressionBufferInfo = regressionBuffer.request();
+        pybind11::buffer_info deltaRegressionBufferInfo = deltaRegressionBuffer.request();
         pybind11::buffer_info embeddingBufferInfo = embeddingBuffer.request();
 
         checkBufferInfo<float, 1>(objectnessScoresBufferInfo);
         checkBufferInfo<int64_t, 1>(objectClassBufferInfo);
         checkBufferInfo<float, 1>(regressionBufferInfo);
+        checkBufferInfo<float, 1>(deltaRegressionBufferInfo);
         checkBufferInfo<float, 2>(embeddingBufferInfo);
 
         std::vector<BoundingBoxDetection> detectionList;
@@ -68,10 +71,12 @@ public:
                                                num);
             VectorView<int64_t> objectClass(static_cast<const int64_t *>(objectClassBufferInfo.ptr) + prevNum, num);
             VectorView<float> regression(static_cast<const float *>(regressionBufferInfo.ptr) + 4 * prevNum, 4 * num);
+            VectorView<float> deltaRegression(static_cast<const float *>(deltaRegressionBufferInfo.ptr) + 4 * prevNum,
+                                              4 * num);
             VectorView<float> embedding(static_cast<const float *>(embeddingBufferInfo.ptr) + prevNum * embeddingLen,
                                         num * embeddingLen);
 
-            auto det = bbutils->bbListFromTargets(objectnessScores, objectClass, regression, embedding,
+            auto det = bbutils->bbListFromTargets(objectnessScores, objectClass, regression, deltaRegression, embedding,
                                                   embeddingLen, threshold);
             detectionList.insert(detectionList.end(), det.begin(), det.end());
             prevNum += num;
@@ -104,5 +109,9 @@ PYBIND11_MODULE(bbutils, module) {
         .def_readwrite("y1", &BoundingBox::y1)
         .def_readwrite("x2", &BoundingBox::x2)
         .def_readwrite("y2", &BoundingBox::y2)
+        .def_readwrite("dxc", &BoundingBox::dxc)
+        .def_readwrite("dyc", &BoundingBox::dyc)
+        .def_readwrite("dw", &BoundingBox::dw)
+        .def_readwrite("dh", &BoundingBox::dh)
         .def_readwrite("cls", &BoundingBox::cls);
 }

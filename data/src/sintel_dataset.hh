@@ -24,67 +24,24 @@
 #include <boost/algorithm/string/predicate.hpp>
 #include <json/json.h>
 
+#include <random>
+
 namespace bfs = boost::filesystem;
 
-class CityscapesDataset : public FileDataset {
+class SintelDataset : public FileDataset {
 public:
-    enum class Mode {
-        Train = 0,
-        TrainExtra,
-        TrainBertha,
-        Test,
-        Val
-    };
-
-    CityscapesDataset(bfs::path basePath, Mode mode);
+    SintelDataset(bfs::path basePath);
     virtual std::shared_ptr<DatasetEntry> get(std::size_t i) override;
 
 private:
-    std::string keyToPrev(std::string key) const;
-    std::tuple<std::string, bool> removeGroup(std::string label) const;
-    std::tuple<cv::Mat, cv::Mat, BoundingBoxList> parseJson(const std::string jsonStr, cv::Size imageSize);
+    cv::Mat readFlowImg(std::string filename) const;
+    std::vector<cv::Mat> flowPyramid(cv::Mat flow) const;
+    std::string nextKey(std::string &key) const;
 
-    bfs::path m_groundTruthPath;
-    bfs::path m_leftImgPath;
-    bfs::path m_prevLeftImgPath;
-    std::string m_groundTruthSubstring;
-    std::string m_leftImgSubstring;
-    bool m_extractBoundingboxes;
-    bool m_hasSequence;
-    double m_fov;
+    bfs::path m_flowPath;
+    bfs::path m_imagePath;
 
-    const std::map<std::string, int32_t> m_labelDict {
-        {"road", 0},
-        {"sidewalk", 1},
-        {"building", 2},
-        {"wall", 3},
-        {"fence", 4},
-        {"pole", 5},
-        {"traffic light", 6},
-        {"traffic sign", 7},
-        {"vegetation", 8},
-        {"terrain", 9},
-        {"sky", 10},
-        {"person", 11},
-        {"rider", 12},
-        {"car", 13},
-        {"truck", 14},
-        {"bus", 15},
-        {"train", 16},
-        {"motorcycle", 17},
-        {"bicycle", 18},
-    };
-
-    const std::map<std::string, int32_t> m_instanceDict {
-        {"person", 0},
-        {"rider", 1},
-        {"car", 2},
-        {"truck", 3},
-        {"bus", 4},
-        {"train", 5},
-        {"motorcycle", 6},
-        {"bicycle", 7},
-        {"traffic light", 8},
-        {"traffic sign", 9},
-    };
+    std::mt19937 m_generator;
+    std::uniform_int_distribution<int> m_yDistribution {0, 436 - 384};
 };
+

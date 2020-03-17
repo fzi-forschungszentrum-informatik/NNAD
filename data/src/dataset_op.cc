@@ -16,8 +16,11 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>. *
  **************************************************************************/
 
+#include "bdd100k_dataset.hh"
 #include "cityscapes_dataset.hh"
+#include "flyingchairs_dataset.hh"
 #include "kitti_dataset.hh"
+#include "sintel_dataset.hh"
 #include "webvision_dataset.hh"
 #include "folder_dataset.hh"
 #include "augment.hh"
@@ -43,8 +46,11 @@ public:
         std::vector<std::shared_ptr<Dataset>> datasets;
 
         std::string cityscapesPath = checkAndGet<std::string>("cityscapes_path", config);
+        std::string bdd100kPath = checkAndGet<std::string>("bdd100k_path", config);
         std::string kittiPath = checkAndGet<std::string>("kitti_path", config);
         std::string folderDsPath = checkAndGet<std::string>("folder_ds_path", config);
+        std::string flyingchairsPath = checkAndGet<std::string>("flyingchairs_path", config);
+        std::string sintelPath = checkAndGet<std::string>("sintel_path", config);
         std::string webvisionPath = checkAndGet<std::string>("webvision_path", config);
 
         if (mode == "train") {
@@ -66,6 +72,17 @@ public:
             }
             if (checkAndGet<bool>("use_cityscapes_train_extra", config)) {
                 auto dataset = std::make_shared<CityscapesDataset>(cityscapesPath, CityscapesDataset::Mode::TrainExtra);
+                datasets.push_back(std::make_shared<RandomDataset>(dataset));
+            }
+            if (checkAndGet<bool>("use_cityscapes_train_bertha", config)) {
+                auto dataset = std::make_shared<CityscapesDataset>(cityscapesPath,
+                                                                   CityscapesDataset::Mode::TrainBertha);
+                datasets.push_back(std::make_shared<RandomDataset>(dataset));
+            }
+
+            if (checkAndGet<bool>("use_bdd100k_train_tracking", config)) {
+                auto dataset = std::make_shared<Bdd100kDataset>(bdd100kPath,
+                                                                   Bdd100kDataset::Mode::TrainTracking);
                 datasets.push_back(std::make_shared<RandomDataset>(dataset));
             }
 
@@ -105,6 +122,16 @@ public:
                 auto dataset = std::make_shared<FolderDataset>(folderDsPath);
                 datasets.push_back(dataset);
             }
+        } else if (mode == "flow") {
+            /* We don't crop and resize here since we need the whole image size for the flow pyramid. */
+            m_distorter = std::make_unique<PointwiseDistort>();
+            if (checkAndGet<bool>("use_sintel_flow", config)) {
+                auto dataset = std::make_shared<SintelDataset>(sintelPath);
+                datasets.push_back(std::make_shared<RandomDataset>(dataset));
+            } else {
+                auto dataset = std::make_shared<FlyingchairsDataset>(flyingchairsPath);
+                datasets.push_back(std::make_shared<RandomDataset>(dataset));
+            }
         } else if (mode == "pretrain") {
             m_distorter = std::make_unique<PointwiseDistort>();
             m_resizer = std::make_unique<CropResize>(cv::Size(256, 256), -1.0, false, false);
@@ -120,8 +147,8 @@ public:
 
         int numWorkers = 16;
         std::size_t queueSize = 64;
-        if (mode == "pretrain") {
-            /* We use a larger batch size for pretraining. So we need more workers here... */
+        if (mode == "pretrain" || mode == "flow") {
+            /* We use a larger batch size for pretraining and flow. So we need more workers here... */
             numWorkers = 32;
             queueSize = 512;
         }
@@ -192,12 +219,21 @@ public:
         auto data = m_states.find(m_id)->second->getNext();
         if (!data) {
             outputEmpty(context, "left_img");
+            outputEmpty(context, "prev_left_img");
+            outputEmpty(context, "flow_0");
+            outputEmpty(context, "flow_1");
+            outputEmpty(context, "flow_2");
+            outputEmpty(context, "flow_3");
+            outputEmpty(context, "flow_4");
             outputEmpty(context, "cls");
             outputEmpty(context, "pixelwise_labels");
             outputEmpty(context, "bb_targets_objectness");
             outputEmpty(context, "bb_targets_cls");
             outputEmpty(context, "bb_targets_id");
+            outputEmpty(context, "bb_targets_prev_id");
             outputEmpty(context, "bb_targets_offset");
+            outputEmpty(context, "bb_targets_delta_valid");
+            outputEmpty(context, "bb_targets_delta");
             outputEmpty(context, "bb_list");
             outputEmpty(context, "key");
             outputEmpty(context, "original_width");
@@ -206,6 +242,20 @@ public:
         }
 
         outputMat<float, 3>(context, data->input.left, "left_img");
+        outputMat<float, 3>(context, data->input.prevLeft, "prev_left_img");
+        if (data->gt.flowPyramid.size() != 5) {
+            outputEmpty(context, "flow_0");
+            outputEmpty(context, "flow_1");
+            outputEmpty(context, "flow_2");
+            outputEmpty(context, "flow_3");
+            outputEmpty(context, "flow_4");
+        } else {
+            outputMat<float, 2>(context, data->gt.flowPyramid[0], "flow_0");
+            outputMat<float, 2>(context, data->gt.flowPyramid[1], "flow_1");
+            outputMat<float, 2>(context, data->gt.flowPyramid[2], "flow_2");
+            outputMat<float, 2>(context, data->gt.flowPyramid[3], "flow_3");
+            outputMat<float, 2>(context, data->gt.flowPyramid[4], "flow_4");
+        }
         outputInt(context, data->gt.cls, "cls");
         outputMat<int32_t, 1>(context, data->gt.pixelwiseLabels, "pixelwise_labels");
         outputBBTargets(context, data->gt.bbList);
@@ -238,7 +288,10 @@ private:
         Tensor* objectnessTensor = nullptr;
         Tensor* clsTensor = nullptr;
         Tensor* idTensor = nullptr;
+        Tensor* prevIdTensor = nullptr;
         Tensor* offsetTensor = nullptr;
+        Tensor* deltaValidTensor = nullptr;
+        Tensor* deltaTensor = nullptr;
         Tensor* boxesTensor = nullptr;
         auto status = context->allocate_output("bb_targets_objectness", TensorShape({numTargets, 1}),
                                                &objectnessTensor);
@@ -247,13 +300,23 @@ private:
         CHECK(status.ok(), "Allocation of output tensor failed");
         status = context->allocate_output("bb_targets_id", TensorShape({numTargets, 1}), &idTensor);
         CHECK(status.ok(), "Allocation of output tensor failed");
+        status = context->allocate_output("bb_targets_prev_id", TensorShape({numTargets, 1}), &prevIdTensor);
+        CHECK(status.ok(), "Allocation of output tensor failed");
         status = context->allocate_output("bb_targets_offset", TensorShape({numTargets, 4}), &offsetTensor);
+        CHECK(status.ok(), "Allocation of output tensor failed");
+        status = context->allocate_output("bb_targets_delta_valid", TensorShape({numTargets, 1}), &deltaValidTensor);
+        CHECK(status.ok(), "Allocation of output tensor failed");
+        status = context->allocate_output("bb_targets_delta", TensorShape({numTargets, 4}), &deltaTensor);
+        CHECK(status.ok(), "Allocation of output tensor failed");
         status = context->allocate_output("bb_list", TensorShape({numBoxes, 5}), &boxesTensor);
         CHECK(status.ok(), "Allocation of output tensor failed");
         auto *objectnessData = objectnessTensor->flat<int32_t>().data();
         auto *clsData = clsTensor->flat<int32_t>().data();
         auto *idData = idTensor->flat<tensorflow::int64>().data();
+        auto *prevIdData = prevIdTensor->flat<tensorflow::int64>().data();
         auto *offsetData = offsetTensor->flat<float>().data();
+        auto *deltaValidData = deltaValidTensor->flat<int32_t>().data();
+        auto *deltaData = deltaTensor->flat<float>().data();
         auto *boxesData = boxesTensor->flat<int32_t>().data();
         for (auto &targets : list.targets) {
             for (auto &target : targets) {
@@ -264,6 +327,16 @@ private:
                 *(offsetData++) = target.dyc;
                 *(offsetData++) = target.dw;
                 *(offsetData++) = target.dh;
+                *(deltaValidData++) = target.deltaValid;
+                *(deltaData++) = target.deltaPrevXc;
+                *(deltaData++) = target.deltaPrevYc;
+                *(deltaData++) = target.deltaPrevW;
+                *(deltaData++) = target.deltaPrevH;
+            }
+        }
+        for (auto &targets : list.previousTargets) {
+            for (auto &target: targets) {
+                *(prevIdData++) = target.id;
             }
         }
         for (auto &box : list.boxes) {
@@ -306,12 +379,21 @@ REGISTER_OP("Dataset")
     .Attr("settings_path: string")
     .Attr("mode: string")
     .Output("left_img: float32")
+    .Output("prev_left_img: float32")
+    .Output("flow_0: float32")
+    .Output("flow_1: float32")
+    .Output("flow_2: float32")
+    .Output("flow_3: float32")
+    .Output("flow_4: float32")
     .Output("cls: int32")
     .Output("pixelwise_labels: int32")
     .Output("bb_targets_objectness: int32")
     .Output("bb_targets_cls: int32")
     .Output("bb_targets_id: int64")
+    .Output("bb_targets_prev_id: int64")
     .Output("bb_targets_offset: float32")
+    .Output("bb_targets_delta_valid: int32")
+    .Output("bb_targets_delta: float32")
     .Output("bb_list: int32")
     .Output("key: string")
     .Output("original_width: int32")
@@ -320,12 +402,21 @@ REGISTER_OP("Dataset")
     .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
         int idx = 0;
         c->set_output(idx++, c->MakeShape({-1, -1, 3})); /* left_img */
+        c->set_output(idx++, c->MakeShape({-1, -1, 3})); /* prev_left_img */
+        c->set_output(idx++, c->MakeShape({-1, -1, 2})); /* flow_0 */
+        c->set_output(idx++, c->MakeShape({-1, -1, 2})); /* flow_1 */
+        c->set_output(idx++, c->MakeShape({-1, -1, 2})); /* flow_2 */
+        c->set_output(idx++, c->MakeShape({-1, -1, 2})); /* flow_3 */
+        c->set_output(idx++, c->MakeShape({-1, -1, 2})); /* flow_4 */
         c->set_output(idx++, c->MakeShape({1})); /* cls */
         c->set_output(idx++, c->MakeShape({-1, -1, 1})); /* pixelwise_labels */
         c->set_output(idx++, c->MakeShape({-1, 1})); /* bb_targets_objectness */
         c->set_output(idx++, c->MakeShape({-1, 1})); /* bb_targets_cls */
         c->set_output(idx++, c->MakeShape({-1, 1})); /* bb_targets_id */
+        c->set_output(idx++, c->MakeShape({-1, 1})); /* bb_targets_prev_id */
         c->set_output(idx++, c->MakeShape({-1, 4})); /* bb_targest_offset */
+        c->set_output(idx++, c->MakeShape({-1, 1})); /* bb_targest_delta_valid */
+        c->set_output(idx++, c->MakeShape({-1, 4})); /* bb_targest_delta */
         c->set_output(idx++, c->MakeShape({-1, 5})); /* bb_list */
         c->set_output(idx++, c->MakeShape({})); /* key */
         c->set_output(idx++, c->MakeShape({})); /* original_width */

@@ -28,9 +28,10 @@ class Dataset(object):
     def __init__(self, **kwargs):
         self.id_ = random.randint(0, 2**30)
         self.kwargs_ = kwargs
-        self.input_keys = ['left']
-        self.gt_keys = ['cls', 'pixelwise_labels', 'bb_targets_objectness', 'bb_targets_cls', 'bb_targets_id',
-                        'bb_targets_offset', 'bb_list']
+        self.input_keys = ['left', 'prev_left']
+        self.gt_keys = ['flow_0', 'flow_1', 'flow_2', 'flow_3', 'flow_4', 'cls', 'pixelwise_labels',
+                        'bb_targets_objectness', 'bb_targets_cls', 'bb_targets_id', 'bb_targets_prev_id',
+                        'bb_targets_offset', 'bb_targets_delta_valid', 'bb_targets_delta', 'bb_list']
         self.metadata_keys = ['key', 'original_width', 'original_height']
 
     def get_data(self):

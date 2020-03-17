@@ -72,6 +72,7 @@ void BBUtils::targetsFromBBList(std::shared_ptr<DatasetEntry> ds) const
     CHECK(list.height == m_height, "The width of the box list does not match the expected value");
 
     auto targetBoxes = targetsFromSingleBBList(list.boxes);
+    auto prevTargetBoxes = targetsFromSingleBBList(list.previousBoxes);
 
     /* We only mask the current target boxes here, because only these are used to train the detector. */
     if (!bbDontCareAreas.empty()) {
@@ -86,6 +87,7 @@ void BBUtils::targetsFromBBList(std::shared_ptr<DatasetEntry> ds) const
     }
 
     ds->gt.bbList.targets.push_back(targetBoxes);
+    ds->gt.bbList.previousTargets.push_back(prevTargetBoxes);
 }
 
 std::vector<TargetBox> BBUtils::targetsFromSingleBBList(std::vector<BoundingBox> &boxes) const
@@ -148,6 +150,7 @@ std::vector<TargetBox> BBUtils::targetsFromSingleBBList(std::vector<BoundingBox>
 std::vector<BoundingBoxDetection> BBUtils::bbListFromTargets(VectorView<float>(objectnessScores),
                                                              VectorView<int64_t> objectClass,
                                                              VectorView<float> regression,
+                                                             VectorView<float> deltaRegression,
                                                              VectorView<float> embedding,
                                                              int embeddingLength, double threshold) const
 {
@@ -159,6 +162,10 @@ std::vector<BoundingBoxDetection> BBUtils::bbListFromTargets(VectorView<float>(o
             target.dyc = regression[4 * idx + 1];
             target.dw = regression[4 * idx + 2];
             target.dh = regression[4 * idx + 3];
+            target.deltaPrevXc = deltaRegression[4 * idx + 0];
+            target.deltaPrevYc = deltaRegression[4 * idx + 1];
+            target.deltaPrevW = deltaRegression[4 * idx + 2];
+            target.deltaPrevH = deltaRegression[4 * idx + 3];
             target.cls = objectClass[idx];
             target.objectnessScore = objectnessScores[idx];
             target.embedding.resize(embeddingLength);
@@ -273,6 +280,7 @@ void BBUtils::setTargetsAsIgnore(std::shared_ptr<DatasetEntry> ds) const
         target.objectness = Objectness::DONT_CARE;
     }
     ds->gt.bbList.targets.push_back(targetBoxes);
+    ds->gt.bbList.previousTargets.push_back(targetBoxes);
 }
 
 std::vector<double> BBUtils::anchorIou(const BoundingBox &box) const
@@ -305,6 +313,14 @@ void BBUtils::boxToTarget(const BoundingBox &box, const AnchorBox &anchor, Targe
     target.dyc = 10.0 * (boxYC - anchorYC) / anchorHeight;
     target.dw = 5.0 * std::log(boxWidth / anchorWidth);
     target.dh = 5.0 * std::log(boxHeight / anchorHeight);
+
+    target.deltaValid = box.deltaValid ? 1 : 0;
+    if (box.deltaValid) {
+        target.deltaPrevXc = box.dxc;
+        target.deltaPrevYc = box.dyc;
+        target.deltaPrevW = box.dw;
+        target.deltaPrevH = box.dh;
+    }
 }
 
 void BBUtils::detectionToBox(const TargetBoxDetection &targetDetection,
@@ -331,4 +347,10 @@ void BBUtils::detectionToBox(const TargetBoxDetection &targetDetection,
     box.y1 = boxYC - 0.5 * boxHeight;
     box.x2 = box.x1 + boxWidth;
     box.y2 = box.y1 + boxHeight;
+
+    box.dxc = targetDetection.deltaPrevXc;
+    box.dyc = targetDetection.deltaPrevYc;
+    box.dw = std::exp(targetDetection.deltaPrevW);
+    box.dh = std::exp(targetDetection.deltaPrevH);
+    box.deltaValid = true;
 }

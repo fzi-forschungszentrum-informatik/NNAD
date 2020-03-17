@@ -31,8 +31,8 @@ public:
     void targetsFromBBList(std::shared_ptr<DatasetEntry> ds) const;
     std::vector<BoundingBoxDetection> bbListFromTargets(VectorView<float>(objectnessScores),
                                                         VectorView<int64_t> objectClass, VectorView<float> regression,
-                                                        VectorView<float> embedding, int embeddingLength,
-                                                        double threshold) const;
+                                                        VectorView<float> deltaRegression, VectorView<float> embedding,
+                                                        int embeddingLength, double threshold) const;
 
     static void performNMS(std::vector<BoundingBoxDetection> &detectionList, double lowOverlapThreshold = 0.1,
                            double highOverlapThreshold = 0.9);

@@ -26,56 +26,24 @@
 
 namespace bfs = boost::filesystem;
 
-class CityscapesDataset : public FileDataset {
+class Bdd100kDataset : public FileDataset {
 public:
     enum class Mode {
-        Train = 0,
-        TrainExtra,
-        TrainBertha,
-        Test,
-        Val
+        TrainTracking = 0,
     };
 
-    CityscapesDataset(bfs::path basePath, Mode mode);
+    Bdd100kDataset(bfs::path basePath, Mode mode);
     virtual std::shared_ptr<DatasetEntry> get(std::size_t i) override;
 
 private:
     std::string keyToPrev(std::string key) const;
-    std::tuple<std::string, bool> removeGroup(std::string label) const;
-    std::tuple<cv::Mat, cv::Mat, BoundingBoxList> parseJson(const std::string jsonStr, cv::Size imageSize);
+    BoundingBoxList parseJson(const std::string jsonStr, cv::Size imageSize) const;
 
     bfs::path m_groundTruthPath;
     bfs::path m_leftImgPath;
-    bfs::path m_prevLeftImgPath;
-    std::string m_groundTruthSubstring;
-    std::string m_leftImgSubstring;
-    bool m_extractBoundingboxes;
     bool m_hasSequence;
-    double m_fov;
 
-    const std::map<std::string, int32_t> m_labelDict {
-        {"road", 0},
-        {"sidewalk", 1},
-        {"building", 2},
-        {"wall", 3},
-        {"fence", 4},
-        {"pole", 5},
-        {"traffic light", 6},
-        {"traffic sign", 7},
-        {"vegetation", 8},
-        {"terrain", 9},
-        {"sky", 10},
-        {"person", 11},
-        {"rider", 12},
-        {"car", 13},
-        {"truck", 14},
-        {"bus", 15},
-        {"train", 16},
-        {"motorcycle", 17},
-        {"bicycle", 18},
-    };
-
-    const std::map<std::string, int32_t> m_instanceDict {
+    const std::map<std::string, int32_t> m_instanceDict { //TODO
         {"person", 0},
         {"rider", 1},
         {"car", 2},
@@ -88,3 +56,4 @@ private:
         {"traffic sign", 9},
     };
 };
+

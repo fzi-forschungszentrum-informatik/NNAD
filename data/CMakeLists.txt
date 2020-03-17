@@ -14,8 +14,11 @@ find_package(Threads REQUIRED)
 
 include_directories(${JSONCPP_INCLUDE_DIRS} ${Boost_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS})
 add_library(dataset
+    src/bdd100k_dataset.cc
     src/cityscapes_dataset.cc
+    src/flyingchairs_dataset.cc
     src/kitti_dataset.cc
+    src/sintel_dataset.cc
     src/webvision_dataset.cc
     src/folder_dataset.cc
     src/file_dataset.cc

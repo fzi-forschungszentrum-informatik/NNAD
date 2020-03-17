@@ -25,15 +25,40 @@
 #include <opencv2/core/mat.hpp>
 
 struct BoundingBox {
-    BoundingBox()
+    BoundingBox() : deltaValid(false)
     {
     }
+
+    void setDeltaFromPrevious(BoundingBox &prevBox)
+    {
+        double width = x2 - x1;
+        double prevWidth = prevBox.x2 - prevBox.x1;
+        double height = y2 - y1;
+        double prevHeight = prevBox.y2 - prevBox.y1;
+        double xc = x1 + 0.5 * width;
+        double prevXc = prevBox.x1 + 0.5 * prevWidth;
+        double yc = y1 + 0.5 * height;
+        double prevYc = prevBox.y1 + 0.5 * prevHeight;
+
+        dxc = prevXc - xc;
+        dyc = prevYc - yc;
+        dw = std::log(prevWidth / width);
+        dh = std::log(prevHeight / height);
+        deltaValid = true;
+    }
+
     int64_t id;
     int32_t cls;
     int32_t x1;
     int32_t y1;
     int32_t x2;
     int32_t y2;
+
+    double dxc; /* xc_prev - xc_curr */
+    double dyc; /* yc_prev - yc_curr */
+    double dw; /* log(w_prev / w_curr) */
+    double dh; /* log(h_prev / h_curr) */
+    bool deltaValid;
 };
 
 struct BoundingBoxDetection {
@@ -63,7 +88,8 @@ enum Objectness {
 };
 
 struct TargetBox {
-    TargetBox() : id(0), dxc(0.0), dyc(0.0), dw(0.0), dh(0.0), cls(0), objectness(Objectness::NO_OBJECT)
+    TargetBox() : id(0), dxc(0.0), dyc(0.0), dw(0.0), dh(0.0), deltaValid(0), deltaPrevXc(0.0), deltaPrevYc(0.0),
+    deltaPrevW(0.0), deltaPrevH(0.0), cls(0), objectness(Objectness::NO_OBJECT)
     {
     }
 
@@ -75,6 +101,13 @@ struct TargetBox {
     double dyc;
     double dw;
     double dh;
+
+    /* Delta movement w.r.t. the box in the previous frame. */
+    int32_t deltaValid;
+    double deltaPrevXc;
+    double deltaPrevYc;
+    double deltaPrevW;
+    double deltaPrevH;
 
     /* Class */
     int32_t cls;
@@ -94,6 +127,12 @@ struct TargetBoxDetection {
     double dw;
     double dh;
 
+    /* Delta movement w.r.t. the box in the previous frame. */
+    double deltaPrevXc;
+    double deltaPrevYc;
+    double deltaPrevW;
+    double deltaPrevH;
+
     /* Class */
     int32_t cls;
 
@@ -111,16 +150,21 @@ struct BoundingBoxList {
     int32_t width;
     int32_t height;
     bool valid;
+    bool previousValid;
     std::vector<BoundingBox> boxes;
+    std::vector<BoundingBox> previousBoxes;
     std::vector<std::vector<TargetBox>> targets;
+    std::vector<std::vector<TargetBox>> previousTargets;
 };
 
 struct DatasetEntry {
     struct {
         cv::Mat left;
+        cv::Mat prevLeft;
     } input;
 
     struct {
+        std::vector<cv::Mat> flowPyramid;
         cv::Mat pixelwiseLabels;
         cv::Mat bbDontCareAreas;
         BoundingBoxList bbList;

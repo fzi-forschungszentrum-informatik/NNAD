@@ -46,6 +46,16 @@ CityscapesDataset::CityscapesDataset(bfs::path basePath, Mode mode)
         m_hasSequence = false;
         m_fov = 50.0;
         break;
+    case Mode::TrainBertha:
+        m_groundTruthPath = basePath / bfs::path("gtFine") / bfs::path("train_bertha");
+        m_leftImgPath = basePath / bfs::path("leftImg8bit") / bfs::path("train_bertha");
+        m_prevLeftImgPath = basePath / bfs::path("leftImg8bit") / bfs::path("train_bertha");
+        m_groundTruthSubstring = std::string("_gtFine_polygons.json");
+        m_leftImgSubstring = std::string("_leftImg8bit.png");
+        m_extractBoundingboxes = true;
+        m_hasSequence = false;
+        m_fov = 120.0;
+        break;
     case Mode::Test:
         m_groundTruthPath = basePath / bfs::path("gtFine") / bfs::path("test");
         m_leftImgPath = basePath / bfs::path("leftImg8bit") / bfs::path("test");
@@ -113,6 +123,10 @@ std::shared_ptr<DatasetEntry> CityscapesDataset::get(std::size_t i)
     cv::Mat leftImg = cv::imread(leftImgPath.string());
     CHECK(leftImg.data, "Failed to read image " + leftImgPath.string());
     result->input.left = toFloatMat(leftImg);
+    auto prevLeftImgPath = m_prevLeftImgPath / bfs::path(keyToPrev(key) + m_leftImgSubstring);
+    cv::Mat prevLeftImg = cv::imread(prevLeftImgPath.string());
+    CHECK(prevLeftImg.data, "Failed to read image " + prevLeftImgPath.string());
+    result->input.prevLeft = toFloatMat(prevLeftImg);
     auto jsonPath = m_groundTruthPath / bfs::path(key + m_groundTruthSubstring);
     std::ifstream jsonFs(jsonPath.string());
     std::string jsonStr = std::string(std::istreambuf_iterator<char>(jsonFs), std::istreambuf_iterator<char>());

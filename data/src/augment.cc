@@ -48,6 +48,9 @@ void PointwiseDistort::apply(std::shared_ptr<DatasetEntry> data)
     }
 
     distortImage(data->input.left, gamma, brightness, contrast, saturation, hue, deltaA, deltaB, blur, noiseSigma);
+    if (data->input.prevLeft.data) {
+        distortImage(data->input.prevLeft, gamma, brightness, contrast, saturation, hue, deltaA, deltaB, blur, noiseSigma);
+    }
 }
 
 void PointwiseDistort::distortImage(cv::Mat &img, double gamma, double brightness, double contrast,
@@ -138,6 +141,7 @@ void CropResize::apply(std::shared_ptr<DatasetEntry> data)
     cv::Rect roi(x, y, newWidth, newHeight);
 
     handleInputImage(data->input.left, roi, doFlip);
+    handleInputImage(data->input.prevLeft, roi, doFlip);
     handleGtImage(data->gt.pixelwiseLabels, roi, doFlip);
     handleGtImage(data->gt.bbDontCareAreas, roi, doFlip);
     handleBoundingBoxList(data->gt.bbList, roi, doFlip);
@@ -216,10 +220,27 @@ void CropResize::handleBoundingBoxList(BoundingBoxList &boxList, cv::Rect roi, b
 
     for (auto &box : boxList.boxes) {
         handleBox(box);
+
+        /* handle delta values */
+        if (box.deltaValid) {
+            if (flip) {
+                box.dxc *= -1;
+            }
+            box.dxc *= scaleX;
+            box.dyc *= scaleY;
+        }
     }
 
+    if (boxList.previousValid) {
+        for (auto &box : boxList.previousBoxes) {
+            handleBox(box);
+            /* The boxes for the previous frame do not have delta values. Therefore we don't have to do anything here */
+        }
+    }
 
     /* Delete invalid boxes. */
     boxList.boxes.erase(std::remove_if(boxList.boxes.begin(), boxList.boxes.end(), 
         [](BoundingBox &box) { return box.x1 >= box.x2 || box.y1 >= box.y2; }), boxList.boxes.end());
+    boxList.previousBoxes.erase(std::remove_if(boxList.previousBoxes.begin(), boxList.previousBoxes.end(),
+        [](BoundingBox &box) { return box.x1 >= box.x2 || box.y1 >= box.y2; }), boxList.previousBoxes.end());
 }
