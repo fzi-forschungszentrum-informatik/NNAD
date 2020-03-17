@@ -57,6 +57,7 @@ def get_pairwise_distances(features):
     num_entries = tf.shape(features)[0]
     mask = tf.ones_like(pairwise_distances_squared) - tf.linalg.diag(tf.ones([num_entries]))
     pairwise_distances_squared = tf.math.multiply(pairwise_distances_squared, mask)
+    pairwise_distances_squared = tf.where(tf.math.greater(pairwise_distances_squared, 0.0), pairwise_distances_squared, 0.0)
 
     pairwise_distances = tf.math.sqrt(pairwise_distances_squared)
 
