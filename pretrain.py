@@ -82,9 +82,9 @@ def train_step():
 
 # Load checkpoints
 checkpoint = tf.train.Checkpoint(backbone=backbone, pretrain_head=pretrain_head, pretrain_loss=pretrain_loss,
-                                    optimizer=opt, pretrain_global_step=global_step)
+                                 optimizer=opt, pretrain_global_step=global_step)
 checkpoint_manager = tf.train.CheckpointManager(checkpoint, os.path.join(config['state_dir'], 'checkpoints'), 25)
-checkpoint.restore(checkpoint_manager.latest_checkpoint)
+checkpoint_status = checkpoint.restore(checkpoint_manager.latest_checkpoint)
 
 # Training loop
 step = global_step.numpy()
@@ -109,11 +109,12 @@ while step < max_pretrain_steps:
         examples_per_sec = examples_per_step / duration
 
         print('%s: step %d, lr = %e, loss = %.6f (%.1f examples/sec: %.3f sec/batch)' %
-                (datetime.now(), step, learning_rate_fn().numpy(), total_loss.numpy(), examples_per_sec,
-                sec_per_batch))
+              (datetime.now(), step, learning_rate_fn().numpy(), total_loss.numpy(), examples_per_sec,
+               sec_per_batch))
 
     # Save trace
     if step == summary_step:
+        checkpoint_status.assert_existing_objects_matched().assert_consumed()
         tf.summary.trace_export("Trace", step)
 
     # Save checkpoints
