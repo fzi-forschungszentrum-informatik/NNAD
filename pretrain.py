@@ -57,7 +57,7 @@ def learning_rate_fn():
     return pretrain_base_learning_rate * (1.0 - tf.pow(global_step / max_pretrain_steps, 0.9))
 
 # Create an optimizer, the network and the loss class
-opt = tfa.optimizers.LAMB(learning_rate_fn)
+opt = tf.keras.optimizers.SGD(learning_rate_fn, momentum=0.995)
 
 # Models
 backbone = ResnetBackbone('backbone', pretrain=True)
