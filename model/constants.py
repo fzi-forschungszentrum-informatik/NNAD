@@ -16,4 +16,11 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>. #
 ##########################################################################
 
+import tensorflow as tf
+from thirdparty.online_norm import *
+
 L2_REGULARIZER_WEIGHT=1e-4
+
+def Normalization():
+    return OnlineNorm(alpha_fwd=0.99, alpha_bkw=0.9)
+

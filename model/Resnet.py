@@ -18,7 +18,6 @@
 
 import tensorflow as tf
 from .constants import *
-from thirdparty.online_norm import *
 
 class ResnetModule(tf.keras.Model):
     def __init__(self, name, num_filters, stride=1, dilation_rate=1):
@@ -31,9 +30,9 @@ class ResnetModule(tf.keras.Model):
     def build(self, input_shapes):
         self.has_skip_conv = input_shapes[-1] != self.num_filters[-1] or self.stride > 1
 
-        self.bn1 = OnlineNorm()
-        self.bn2 = OnlineNorm()
-        self.bn3 = OnlineNorm()
+        self.bn1 = Normalization()
+        self.bn2 = Normalization()
+        self.bn3 = Normalization()
 
         self.conv1 = tf.keras.layers.Conv2D(self.num_filters[0],
             (1, 1),
@@ -59,8 +58,6 @@ class ResnetModule(tf.keras.Model):
             name='conv3')
 
         if self.has_skip_conv:
-            self.bn_skip = OnlineNorm()
-
             self.conv_skip = tf.keras.layers.Conv2D(self.num_filters[-1],
                 (1, 1),
                 strides=(self.stride, self.stride),

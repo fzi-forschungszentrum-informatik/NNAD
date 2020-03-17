@@ -27,8 +27,8 @@ class SingleDecoder(tf.keras.Model):
 
         self.num_output_channels = num_output_channels
 
-        self.rm1 = ResnetModule('resnet_module_1', [channels, channels])
-        self.rm2 = ResnetModule('resnet_module_2', [channels, channels])
+        self.rm1 = ResnetModule('resnet_module_1', [channels, channels, 2 * channels])
+        self.rm2 = ResnetModule('resnet_module_2', [channels, channels, 2 * channels])
         self.last_conv = tf.keras.layers.Conv2D(num_output_channels,
                 (1, 1),
                 kernel_initializer=tf.keras.initializers.he_normal(),
@@ -53,11 +53,11 @@ class BoxDecoder(tf.keras.Model):
         boxes_per_pos = config['boxes_per_pos']
         self.config = config
 
-        self.box_decoder = SingleDecoder('box_decoder', 4 * boxes_per_pos, 128)
-        self.cls_decoder = SingleDecoder('cls_decoder', config['num_bb_classes'] * boxes_per_pos, 128)
-        self.obj_decoder = SingleDecoder('obj_decoder', 2 * boxes_per_pos, 128)
+        self.box_decoder = SingleDecoder('box_decoder', 4 * boxes_per_pos, 64)
+        self.cls_decoder = SingleDecoder('cls_decoder', config['num_bb_classes'] * boxes_per_pos, 64)
+        self.obj_decoder = SingleDecoder('obj_decoder', 2 * boxes_per_pos, 64)
         self.embedding_decoder = SingleDecoder('embedding_decoder',
-                                               config['box_embedding_len'] * boxes_per_pos, 512)
+                                               config['box_embedding_len'] * boxes_per_pos, 128)
 
     def call(self, x, train_batch_norm=False):
         n = x.get_shape().as_list()[0]
@@ -80,10 +80,10 @@ class BoxBranch(tf.keras.Model):
         super().__init__(name=name)
         self.core_branch = ResnetBranch('box_branch')
 
-        self.downsample1 = ResnetModule('downsample_1', [512, 512, 2048], stride=2)
-        self.downsample2 = ResnetModule('downsample_2', [512, 512, 2048], stride=2)
-        self.downsample3 = ResnetModule('downsample_3', [512, 512, 2048], stride=2)
-        self.downsample4 = ResnetModule('downsample_4', [512, 512, 2048], stride=2)
+        self.downsample1 = ResnetModule('downsample_1', [512, 512, 1024], stride=2)
+        self.downsample2 = ResnetModule('downsample_2', [512, 512, 1024], stride=2)
+        self.downsample3 = ResnetModule('downsample_3', [512, 512, 1024], stride=2)
+        self.downsample4 = ResnetModule('downsample_4', [512, 512, 1024], stride=2)
 
         self.decoder = BoxDecoder('decoder', config)
 

@@ -48,7 +48,7 @@ class LabelLoss(tf.keras.Model):
         accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
 
         # Apply some sensible scaling before loss weighting
-        loss *= 50.0
+        loss *= 10.0
 
         loss = self.weight(loss, step)
 
