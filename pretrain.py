@@ -50,11 +50,10 @@ with tf.device('/cpu:0'):
     global_step = tf.Variable(0, 'global_pretrain_step')
 
 # Define a learning rate schedule
-max_pretrain_steps = 2500000
-pretrain_base_learning_rate = 1e-3
+max_pretrain_steps = 10000000
 
 def learning_rate_fn():
-    return pretrain_base_learning_rate * (1.0 - tf.pow(global_step / max_pretrain_steps, 0.9))
+    return tf.constant(1e-4)
 
 # Create an optimizer, the network and the loss class
 opt = tf.keras.optimizers.SGD(learning_rate_fn, momentum=0.995)
@@ -114,7 +113,8 @@ while step < max_pretrain_steps:
 
     # Save trace
     if step == summary_step:
-        checkpoint_status.assert_existing_objects_matched().assert_consumed()
+        if step > 100:
+            checkpoint_status.assert_existing_objects_matched().assert_consumed()
         tf.summary.trace_export("Trace", step)
 
     # Save checkpoints

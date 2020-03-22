@@ -103,6 +103,7 @@ class ResnetBackbone(tf.keras.Model):
         self.module_2a = ResnetModule('resnet_module_2a', [128, 128, 256], stride=2)
         self.module_2b = ResnetModule('resnet_module_2b', [128, 128, 256])
         self.module_2c = ResnetModule('resnet_module_2c', [128, 128, 256])
+        self.module_2d = ResnetModule('resnet_module_2d', [128, 128, 256])
 
         stride = 1
         dilation_rate = 1
@@ -114,12 +115,16 @@ class ResnetBackbone(tf.keras.Model):
                                       dilation_rate=dilation_rate)
         self.module_3b = ResnetModule('resnet_module_3b', [256, 256, 512],
                                       dilation_rate=dilation_rate)
+        self.module_3c = ResnetModule('resnet_module_3c', [256, 256, 512],
+                                      dilation_rate=dilation_rate)
 
         if not pretrain:
             dilation_rate = 4
-        self.module_3d = ResnetModule('resnet_module_3d', [256, 256, 512], stride=stride,
+        self.module_3d = ResnetModule('resnet_module_3d', [512, 512, 1024], stride=stride,
                                       dilation_rate=dilation_rate)
-        self.module_3e = ResnetModule('resnet_module_3e', [256, 256, 512],
+        self.module_3e = ResnetModule('resnet_module_3e', [512, 512, 1024],
+                                      dilation_rate=2*dilation_rate)
+        self.module_3f = ResnetModule('resnet_module_3e', [512, 512, 1024],
                                       dilation_rate=dilation_rate)
 
     def call(self, x, train_batch_norm=False):
@@ -136,12 +141,15 @@ class ResnetBackbone(tf.keras.Model):
         x = self.module_2a(x, train_batch_norm=train_batch_norm)
         x = self.module_2b(x, train_batch_norm=train_batch_norm)
         x = self.module_2c(x, train_batch_norm=train_batch_norm)
+        x = self.module_2d(x, train_batch_norm=train_batch_norm)
 
         x = self.module_3a(x, train_batch_norm=train_batch_norm)
         x = self.module_3b(x, train_batch_norm=train_batch_norm)
+        x = self.module_3c(x, train_batch_norm=train_batch_norm)
 
         x = self.module_3d(x, train_batch_norm=train_batch_norm)
         x = self.module_3e(x, train_batch_norm=train_batch_norm)
+        x = self.module_3f(x, train_batch_norm=train_batch_norm)
         return x
 
 
