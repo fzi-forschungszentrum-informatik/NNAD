@@ -7,6 +7,11 @@ cityscapes_path: ./datasets/cityscapes
 kitti_path: ./datasets/kitti
 folder_ds_path: ./datasets/test_imgs
 webvision_path: ./datasets/webvision
+bdd100k_path: ./datasets/bdd100k
+flyingchairs_path: ./datasets/flyingchairs
+sintel_path: ./datasets/sintel
+
+use_sintel_flow: False
 
 # Pretrain settings
 num_pretrain_classes: 1000
@@ -34,6 +39,7 @@ eval_horizontal_fov: 50
 
 # Training parameter settings
 batch_size_per_gpu: 4
+flow_batch_size_per_gpu: 8
 train_batch_norm: True
 
 # Label settings
