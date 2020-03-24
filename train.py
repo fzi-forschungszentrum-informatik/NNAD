@@ -52,8 +52,14 @@ with tf.device('/cpu:0'):
     global_step = tf.Variable(0, 'global_step')
 
 # Define the learning rate schedule
+max_train_steps = 500000
+
+@tf.function
 def learning_rate_fn():
-    return config['base_learning_rate'] * (1.0 - tf.pow(global_step / config['max_steps'], 0.9))
+    if global_step < tf.constant(250000):
+        return tf.constant(1e-4)
+    else:
+        return tf.constant(1e-5)
 
 # Create an optimizer, the network and the loss class
 opt = tf.keras.optimizers.SGD(learning_rate_fn, momentum=0.995)
@@ -113,7 +119,7 @@ checkpoint_status = checkpoint.restore(checkpoint_manager.latest_checkpoint)
 # Training loop
 step = global_step.numpy()
 summary_step = step + 1
-while step < config['max_steps']:
+while step < max_train_steps:
     # Enable trace
     if step == summary_step:
         tf.summary.trace_on(graph=True, profiler=True)
@@ -145,7 +151,7 @@ while step < config['max_steps']:
                                     profiler_outdir=os.path.join(config['state_dir'], 'summaries'))
 
     # Save checkpoints
-    if step > 0 and (step % 1000 == 0 or (step + 1) == config['max_steps']):
+    if step > 0 and (step % 1000 == 0 or (step + 1) == max_train_steps):
         checkpoint_manager.save(global_step)
 
     # Increase step counter

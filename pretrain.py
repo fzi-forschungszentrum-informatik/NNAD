@@ -118,7 +118,7 @@ while step < max_pretrain_steps:
         tf.summary.trace_export("Trace", step)
 
     # Save checkpoints
-    if step > 0 and (step % 1000 == 0 or (step + 1) == config['max_steps']):
+    if step > 0 and (step % 1000 == 0 or (step + 1) == max_pretrain_steps):
         checkpoint_manager.save(global_step)
 
     # Increase step counter

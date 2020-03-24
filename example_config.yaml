@@ -10,7 +10,7 @@ webvision_path: ./datasets/webvision
 
 # Pretrain settings
 num_pretrain_classes: 1000
-pretrain_batch_size_per_gpu: 32
+pretrain_batch_size_per_gpu: 8
 pretrain_batch_norm: True
 
 # Select active datasets
@@ -24,18 +24,15 @@ use_kitti_test: False
 use_folder_ds: False
 
 # Image size settings
-train_image_width: 1536
-train_image_height: 768
-eval_image_width: 2048
-eval_image_height: 1024
+train_image_width: 512
+train_image_height: 256
+eval_image_width: 1024
+eval_image_height: 512
 eval_horizontal_fov: 50
 
 # Training parameter settings
-max_steps: 300000
-batch_size_per_gpu: 1
+batch_size_per_gpu: 4
 train_batch_norm: True
-
-base_learning_rate: 0.01
 
 # Label settings
 train_labels: True
