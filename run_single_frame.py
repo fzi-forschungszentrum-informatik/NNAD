@@ -82,7 +82,7 @@ while True:
         bb_targets_embedding = output['bb_targets_embedding'].numpy()
 
         boxes = bbutils.bbListFromTargetsBuffer(bb_targets_objectness, bb_targets_cls, bb_targets_offset,
-                                                bb_targets_embedding, 0.5)
+                                                np.array([]), bb_targets_embedding, 0.5)
         bb_eval.add(gt['bb_list'].numpy(), boxes)
 
         write_boxes_txt(boxes, inp['left'], metadata, out_dir)

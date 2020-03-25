@@ -162,10 +162,12 @@ std::vector<BoundingBoxDetection> BBUtils::bbListFromTargets(VectorView<float>(o
             target.dyc = regression[4 * idx + 1];
             target.dw = regression[4 * idx + 2];
             target.dh = regression[4 * idx + 3];
-            target.deltaPrevXc = deltaRegression[4 * idx + 0];
-            target.deltaPrevYc = deltaRegression[4 * idx + 1];
-            target.deltaPrevW = deltaRegression[4 * idx + 2];
-            target.deltaPrevH = deltaRegression[4 * idx + 3];
+            if (deltaRegression.size() > 0) {
+                target.deltaPrevXc = deltaRegression[4 * idx + 0];
+                target.deltaPrevYc = deltaRegression[4 * idx + 1];
+                target.deltaPrevW = deltaRegression[4 * idx + 2];
+                target.deltaPrevH = deltaRegression[4 * idx + 3];
+            }
             target.cls = objectClass[idx];
             target.objectnessScore = objectnessScores[idx];
             target.embedding.resize(embeddingLength);

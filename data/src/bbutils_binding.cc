@@ -71,8 +71,14 @@ public:
                                                num);
             VectorView<int64_t> objectClass(static_cast<const int64_t *>(objectClassBufferInfo.ptr) + prevNum, num);
             VectorView<float> regression(static_cast<const float *>(regressionBufferInfo.ptr) + 4 * prevNum, 4 * num);
-            VectorView<float> deltaRegression(static_cast<const float *>(deltaRegressionBufferInfo.ptr) + 4 * prevNum,
-                                              4 * num);
+
+            const float *deltaRegressionData = static_cast<const float *>(deltaRegressionBufferInfo.ptr) + 4 * prevNum;
+            int deltaRegressionNum = 4 * num;
+            if (deltaRegressionBufferInfo.size == 0) {
+                deltaRegressionData = nullptr;
+                deltaRegressionNum = 0;
+            }
+            VectorView<float> deltaRegression(deltaRegressionData, deltaRegressionNum);
             VectorView<float> embedding(static_cast<const float *>(embeddingBufferInfo.ptr) + prevNum * embeddingLen,
                                         num * embeddingLen);
 
