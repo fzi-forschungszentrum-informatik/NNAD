@@ -59,61 +59,6 @@ class FeatureDownsample(tf.keras.Model):
         x = tf.keras.activations.relu(x, 0.1)
         return x
 
-class FlowEstimator_(tf.keras.Model):
-    def __init__(self, name):
-        super().__init__(name=name)
-
-        self.conv1 = tf.keras.layers.SeparableConv2D(128,
-            (3, 3),
-            padding='same',
-            kernel_initializer=tf.keras.initializers.he_normal(),
-            kernel_regularizer=tf.keras.regularizers.l2(L2_REGULARIZER_WEIGHT),
-            name='conv1')
-        self.conv2 = tf.keras.layers.SeparableConv2D(128,
-            (3, 3),
-            padding='same',
-            kernel_initializer=tf.keras.initializers.he_normal(),
-            kernel_regularizer=tf.keras.regularizers.l2(L2_REGULARIZER_WEIGHT),
-            name='conv2')
-        self.conv3 = tf.keras.layers.SeparableConv2D(96,
-            (3, 3),
-            padding='same',
-            kernel_initializer=tf.keras.initializers.he_normal(),
-            kernel_regularizer=tf.keras.regularizers.l2(L2_REGULARIZER_WEIGHT),
-            name='conv3')
-        self.conv4 = tf.keras.layers.SeparableConv2D(64,
-            (3, 3),
-            padding='same',
-            kernel_initializer=tf.keras.initializers.he_normal(),
-            kernel_regularizer=tf.keras.regularizers.l2(L2_REGULARIZER_WEIGHT),
-            name='conv4')
-        self.conv5 = tf.keras.layers.SeparableConv2D(32,
-            (3, 3),
-            padding='same',
-            kernel_initializer=tf.keras.initializers.he_normal(),
-            kernel_regularizer=tf.keras.regularizers.l2(L2_REGULARIZER_WEIGHT),
-            name='conv5')
-        self.conv6 = tf.keras.layers.SeparableConv2D(2,
-            (3, 3),
-            padding='same',
-            kernel_initializer=tf.keras.initializers.he_normal(),
-            kernel_regularizer=tf.keras.regularizers.l2(L2_REGULARIZER_WEIGHT),
-            name='conv6')
-
-    def call(self, x):
-        x1 = self.conv1(x)
-        x1 = tf.keras.activations.relu(x1, 0.1)
-        x2 = self.conv2(tf.concat([x, x1], axis=-1))
-        x2 = tf.keras.activations.relu(x2, 0.1)
-        x3 = self.conv3(tf.concat([x, x2], axis=-1))
-        x3 = tf.keras.activations.relu(x3, 0.1)
-        x4 = self.conv4(tf.concat([x, x3], axis=-1))
-        x4 = tf.keras.activations.relu(x4, 0.1)
-        x5 = self.conv5(tf.concat([x, x4], axis=-1))
-        x5 = tf.keras.activations.relu(x5, 0.1)
-        x = self.conv6(tf.concat([x, x1, x2, x3, x4, x5], axis=-1))
-        return x
-
 class FlowEstimator(tf.keras.Model):
     def __init__(self, name):
         super().__init__(name=name)
@@ -134,7 +79,10 @@ class FlowEstimator(tf.keras.Model):
         return x
 
 def _warp(features, flow):
-    warped = tfa.image.dense_image_warp(features, flow)
+    # We need to use the negative flow here because of how tfa.image.dense_image_warp works
+    # What we really want is to look up the coordinates at coord_old + flow and map them back to coorld_old
+    neg_flow = -flow
+    warped = tfa.image.dense_image_warp(features, neg_flow)
     warped.set_shape(features.get_shape())
     return warped
 
@@ -169,6 +117,7 @@ class Flow(tf.keras.Model):
 
         self.correlate = tfa.layers.optical_flow.CorrelationCost(1, 4, 1, 1, 4, "channels_last")
 
+    # Calculates _forward_ flow. For backward flow exchange inputs.
     def call(self, inputs, train_batch_norm=False):
         current, prev = inputs
         current = self.channel_adjust(current)
@@ -187,36 +136,36 @@ class Flow(tf.keras.Model):
         prev_4 = self.feature_downsample3(prev_3, train_batch_norm=train_batch_norm)
 
         # Correlation on level 4
-        correlation_4 = self.correlate([current_4, prev_4])
+        correlation_4 = self.correlate([prev_4, current_4])
         x = tf.concat([correlation_4, current_4, prev_4], axis=-1)
         flow_4 = self.fe4(x, train_batch_norm=train_batch_norm)
         flow_4_up = self.flow_upsample4(flow_4)
 
         # Correlation and flow on level 3
-        warped_prev_3 = _warp(prev_3, flow_4_up)
-        correlation_3 = self.correlate([current_3, warped_prev_3])
-        x = tf.concat([correlation_3, current_3, warped_prev_3, flow_4_up], axis=-1)
+        warped_current_3 = _warp(current_3, flow_4_up)
+        correlation_3 = self.correlate([prev_3, warped_current_3])
+        x = tf.concat([correlation_3, warped_current_3, prev_3, flow_4_up], axis=-1)
         flow_3 = self.fe3(x, train_batch_norm=train_batch_norm)
         flow_3_up = self.flow_upsample3(flow_3)
 
         # Correlation and flow on level 2
-        warped_prev_2 = _warp(prev_2, flow_3_up)
-        correlation_2 = self.correlate([current_2, warped_prev_2])
-        x = tf.concat([correlation_2, current_2, warped_prev_2, flow_3_up], axis=-1)
+        warped_current_2 = _warp(current_2, flow_3_up)
+        correlation_2 = self.correlate([prev_2, warped_current_2])
+        x = tf.concat([correlation_2, warped_current_2, prev_2, flow_3_up], axis=-1)
         flow_2 = self.fe2(x, train_batch_norm=train_batch_norm)
         flow_2_up = self.flow_upsample2(flow_2)
 
         # Correlation and flow on level 1
-        warped_prev_1 = _warp(prev_1, flow_2_up)
-        correlation_1 = self.correlate([current_1, warped_prev_1])
-        x = tf.concat([correlation_1, current_1, warped_prev_1, flow_2_up], axis=-1)
+        warped_current_1 = _warp(current_1, flow_2_up)
+        correlation_1 = self.correlate([prev_1, warped_current_1])
+        x = tf.concat([correlation_1, warped_current_1, prev_1, flow_2_up], axis=-1)
         flow_1 = self.fe1(x, train_batch_norm=train_batch_norm)
         flow_1_up = self.flow_upsample1(flow_1)
 
         # Correlation and flow on level 0
-        warped_prev_0 = _warp(prev_0, flow_1_up)
-        correlation_0 = self.correlate([current_0, warped_prev_0])
-        x = tf.concat([correlation_0, current_0, warped_prev_0, flow_1_up], axis=-1)
+        warped_current_0 = _warp(current_0, flow_1_up)
+        correlation_0 = self.correlate([prev_0, warped_current_0])
+        x = tf.concat([correlation_0, warped_current_0, prev_0, flow_1_up], axis=-1)
         flow_0 = self.fe0(x, train_batch_norm=train_batch_norm)
 
         results = {}
@@ -231,18 +180,17 @@ class Flow(tf.keras.Model):
 class FlowWarp(tf.keras.Model):
     def __init__(self, name):
         super().__init__(name=name)
-        self.flow = Flow('flow')
         self.channel_reduce = tf.keras.layers.SeparableConv2D(1024,
             (1, 1),
             kernel_initializer=tf.keras.initializers.he_normal(),
             kernel_regularizer=tf.keras.regularizers.l1(L2_REGULARIZER_WEIGHT),
             name='conv_reduce')
 
-    def call(self, inputs, train_batch_norm=False, train_flow=False):
-        x, x_prev, fw_flow, bw_flow = inputs
+    def call(self, inputs, train_batch_norm=False):
+        x, x_prev, bw_flow = inputs
 
-        x_prev_warped = _warp(x_prev, fw_flow)
-        x = tf.concat([x, x_prev_warped, fw_flow, bw_flow], axis=-1)
+        x_prev_warped = _warp(x_prev, bw_flow)
+        x = tf.concat([x, x_prev_warped, bw_flow], axis=-1)
         x = self.channel_reduce(x)
 
         return x

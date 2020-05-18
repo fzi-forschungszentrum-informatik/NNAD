@@ -41,12 +41,16 @@ class FlowLoss(tf.keras.Model):
 
         gt_flow_0 = ground_truth['flow_0']
         gt_flow_0 = tf.reshape(gt_flow_0, [-1])
+        gt_flow_0 = tf.stop_gradient(gt_flow_0)
         gt_flow_1 = ground_truth['flow_1']
         gt_flow_1 = tf.reshape(gt_flow_1, [-1])
+        gt_flow_1 = tf.stop_gradient(gt_flow_1)
         gt_flow_2 = ground_truth['flow_2']
         gt_flow_2 = tf.reshape(gt_flow_2, [-1])
+        gt_flow_2 = tf.stop_gradient(gt_flow_2)
         gt_flow_3 = ground_truth['flow_3']
         gt_flow_3 = tf.reshape(gt_flow_3, [-1])
+        gt_flow_3 = tf.stop_gradient(gt_flow_3)
 
         loss_0 = tf.norm(flow_0 - gt_flow_0)
         loss_1 = tf.norm(flow_1_up - gt_flow_0)
