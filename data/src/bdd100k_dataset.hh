@@ -36,8 +36,9 @@ public:
     virtual std::shared_ptr<DatasetEntry> get(std::size_t i) override;
 
 private:
+    std::tuple<std::string, int> splitKey(std::string key) const;
     std::string keyToPrev(std::string key) const;
-    BoundingBoxList parseJson(const std::string jsonStr, cv::Size imageSize) const;
+    BoundingBoxList parseJson(const std::string jsonStr, std::string keyPrefix, int seqNo, cv::Size imageSize) const;
 
     bfs::path m_groundTruthPath;
     bfs::path m_leftImgPath;

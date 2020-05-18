@@ -27,31 +27,31 @@ Bdd100kDataset::Bdd100kDataset(bfs::path basePath, Mode mode)
 {
     switch (mode) {
     case Mode::TrainTracking:
-        m_groundTruthPath = basePath / bfs::path("tracking") / bfs::path("nnad_labels");
-        m_leftImgPath = basePath / bfs::path("tracking") / bfs::path("images") / bfs::path("val");
+        m_groundTruthPath = basePath / bfs::path("labels-20") / bfs::path("box-track") / bfs::path("train");
+        m_leftImgPath = basePath / bfs::path("images") / bfs::path("track") / bfs::path("train");
         m_hasSequence = true;
         break;
     default:
         CHECK(false, "Unknown mode!");
     }
 
-    for (auto &entry : bfs::recursive_directory_iterator(m_groundTruthPath)) {
-        if (entry.path().extension() == ".json") {
-            auto relativePath = bfs::relative(entry.path(), m_groundTruthPath);
-            std::string key = relativePath.string();
-            key = key.substr(0, key.length() - std::string(".json").length());
-            m_keys.push_back(key);
+    for (auto &entry : bfs::recursive_directory_iterator(m_leftImgPath)) {
+        if (entry.path().extension() == ".jpg") {
+            std::string key = entry.path().filename().string();
+            key = key.substr(0, key.length() - std::string(".jpg").length());
+
+            /* Do not push the first image in the sequence, because it has no previous image */
+            auto [prefix, seqNo] = splitKey(key);
+            if (seqNo > 1) {
+                m_keys.push_back(key);
+            }
         }
     }
     std::sort(m_keys.begin(), m_keys.end());
 }
 
-std::string Bdd100kDataset::keyToPrev(std::string key) const
+std::tuple<std::string, int> Bdd100kDataset::splitKey(std::string key) const
 {
-    if (!m_hasSequence) {
-        return key;
-    }
-
     std::string remainder = key;
     auto pos = remainder.find("-");
     std::string id1 = remainder.substr(0, pos);
@@ -60,12 +60,25 @@ std::string Bdd100kDataset::keyToPrev(std::string key) const
     std::string id2 = remainder.substr(0, pos);
     std::string seqno = remainder.substr(pos + 1);
 
-    /* We go two images back to have a larger displacement / a lower simulated frame rate.
-     * This matches the old bounding box that was extracted by the preparation script for the tracking dataset. */
-    int numericSeqno = std::stoi(seqno) - 2;
+    int numericSeqno = std::stoi(seqno);
+    std::string prefix = id1 + std::string("-") + id2;
+
+    return {prefix, numericSeqno};
+}
+
+std::string Bdd100kDataset::keyToPrev(std::string key) const
+{
+    if (!m_hasSequence) {
+        return key;
+    }
+
+    auto [prefix, numericSeqno] = splitKey(key);
+
+    /* Go to previous image */
+    --numericSeqno;
 
     std::ostringstream result;
-    result << id1 << "-" << id2 << "-" << std::setw(7) << std::setfill('0') << numericSeqno;
+    result << prefix << "-" << std::setw(7) << std::setfill('0') << numericSeqno;
 
     return result.str();
 }
@@ -75,28 +88,30 @@ std::shared_ptr<DatasetEntry> Bdd100kDataset::get(std::size_t i)
     CHECK(i < m_keys.size(), "Index out of range");
     auto key = m_keys[i];
     auto result = std::make_shared<DatasetEntry>();
-    auto leftImgPath = m_leftImgPath / bfs::path(key + std::string(".jpg"));
+    auto [keyPrefix, seqNo] = splitKey(key);
+    auto leftImgPath = m_leftImgPath / bfs::path(keyPrefix) / bfs::path(key + std::string(".jpg"));
     cv::Mat leftImg = cv::imread(leftImgPath.string());
     CHECK(leftImg.data, "Failed to read image " + leftImgPath.string());
     result->input.left = toFloatMat(leftImg);
-    auto prevLeftImgPath = m_leftImgPath / bfs::path(keyToPrev(key) + std::string(".jpg"));
+    auto prevLeftImgPath = m_leftImgPath / bfs::path(keyPrefix) / bfs::path(keyToPrev(key) + std::string(".jpg"));
     cv::Mat prevLeftImg = cv::imread(prevLeftImgPath.string());
     CHECK(prevLeftImg.data, "Failed to read image " + prevLeftImgPath.string());
     result->input.prevLeft = toFloatMat(prevLeftImg);
-    auto jsonPath = m_groundTruthPath / bfs::path(key + std::string(".json"));
+    auto jsonPath = m_groundTruthPath / bfs::path(keyPrefix + std::string(".json"));
     std::ifstream jsonFs(jsonPath.string());
     std::string jsonStr = std::string(std::istreambuf_iterator<char>(jsonFs), std::istreambuf_iterator<char>());
-    auto bbList = parseJson(jsonStr, result->input.left.size());
+    auto bbList = parseJson(jsonStr, keyPrefix, seqNo, result->input.left.size());
     result->gt.bbList = bbList;
+    result->gt.pixelwiseLabels = cv::Mat(result->input.left.size(), CV_32SC1, cv::Scalar(m_semanticDontCareLabel));
     result->metadata.originalWidth = result->input.left.cols;
     result->metadata.originalHeight = result->input.left.rows;
     result->metadata.canFlip = true;
-    result->metadata.horizontalFov = 90.0; // This is just an estimate...
+    result->metadata.horizontalFov = 50.0; // This is just an estimate...
     result->metadata.key = key;
     return result;
 }
 
-BoundingBoxList Bdd100kDataset::parseJson(const std::string jsonStr, cv::Size imageSize) const
+BoundingBoxList Bdd100kDataset::parseJson(const std::string jsonStr, std::string keyPrefix, int seqNo, cv::Size imageSize) const
 {
     Json::Value root;
     Json::Reader reader;
@@ -109,9 +124,29 @@ BoundingBoxList Bdd100kDataset::parseJson(const std::string jsonStr, cv::Size im
     bbList.width = imageSize.width;
     bbList.height = imageSize.height;
 
-    for (auto &annotation : root) {
+    std::ostringstream currentName, previousName;
+    currentName << keyPrefix << "-" << std::setw(7) << std::setfill('0') << seqNo << ".jpg";
+    previousName << keyPrefix << "-" << std::setw(7) << std::setfill('0') << seqNo - 1 << ".jpg";
+
+    Json::Value currentRoot;
+    Json::Value previousRoot;
+
+    for (auto &entry : root) {
+        if (entry["name"] == currentName.str()) {
+            currentRoot = entry["labels"];
+        }
+        if (entry["name"] == previousName.str()) {
+            previousRoot = entry["labels"];
+        }
+    }
+
+    for (auto &annotation : currentRoot) {
+        std::string id = annotation["id"].asString();
+        if (id.empty()) {
+            std::cout << "Skipping annotation " << annotation << std::endl;
+            continue;
+        }
         std::string cls = annotation["category"].asString();
-        int64_t id = annotation["id"].asInt64();
         int32_t xMin = static_cast<int32_t>(annotation["box2d"]["x1"].asDouble());
         int32_t xMax = static_cast<int32_t>(annotation["box2d"]["x2"].asDouble());
         int32_t yMin = static_cast<int32_t>(annotation["box2d"]["y1"].asDouble());
@@ -122,19 +157,26 @@ BoundingBoxList Bdd100kDataset::parseJson(const std::string jsonStr, cv::Size im
         int32_t oldYMin = 0;
         int32_t oldYMax = 0;
         bool hasPrevious = false;
-        if (annotation.isMember("old_box2d")) {
-            hasPrevious = true;
-            oldXMin = static_cast<int32_t>(annotation["old_box2d"]["x1"].asDouble());
-            oldXMax = static_cast<int32_t>(annotation["old_box2d"]["x2"].asDouble());
-            oldYMin = static_cast<int32_t>(annotation["old_box2d"]["y1"].asDouble());
-            oldYMax = static_cast<int32_t>(annotation["old_box2d"]["y2"].asDouble());
+
+        for (auto &previousAnnotation : previousRoot) {
+            std::string previousId = previousAnnotation["id"].asString();
+            if (previousId.empty()) {
+                continue;
+            }
+            if (previousId == id) {
+                hasPrevious = true;
+                oldXMin = static_cast<int32_t>(previousAnnotation["box2d"]["x1"].asDouble());
+                oldXMax = static_cast<int32_t>(previousAnnotation["box2d"]["x2"].asDouble());
+                oldYMin = static_cast<int32_t>(previousAnnotation["box2d"]["y1"].asDouble());
+                oldYMax = static_cast<int32_t>(previousAnnotation["box2d"]["y2"].asDouble());
+            }
         }
 
         /* Generate bounding box list */
         if (m_instanceDict.count(cls) > 0) {
             BoundingBox boundingBox;
             boundingBox.cls = m_instanceDict.at(cls);
-            boundingBox.id = id;
+            boundingBox.id = std::stoi(id);
             boundingBox.x1 = xMin;
             boundingBox.x2 = xMax;
             boundingBox.y1 = yMin;
@@ -142,7 +184,7 @@ BoundingBoxList Bdd100kDataset::parseJson(const std::string jsonStr, cv::Size im
             if (hasPrevious) {
                 BoundingBox previousBoundingBox;
                 previousBoundingBox.cls = m_instanceDict.at(cls);
-                previousBoundingBox.id = id;
+                previousBoundingBox.id = std::stoi(id);
                 previousBoundingBox.x1 = oldXMin;
                 previousBoundingBox.x2 = oldXMax;
                 previousBoundingBox.y1 = oldYMin;
@@ -150,6 +192,7 @@ BoundingBoxList Bdd100kDataset::parseJson(const std::string jsonStr, cv::Size im
                 bbList.previousBoxes.push_back(previousBoundingBox);
                 boundingBox.setDeltaFromPrevious(previousBoundingBox);
             }
+
             bbList.boxes.push_back(boundingBox);
         }
     }
