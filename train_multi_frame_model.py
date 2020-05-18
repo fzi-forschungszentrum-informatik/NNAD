@@ -30,9 +30,8 @@ import tensorflow as tf
 import tensorflow_addons as tfa
 
 from model.Heads import *
-from model.Resnet import *
 from model.Flow import *
-from model.loss.FlowLoss import *
+from model.Resnet import *
 from model.loss.LabelLoss import *
 from model.loss.BoxLoss import *
 from model.loss.EmbeddingLoss import *
@@ -46,15 +45,15 @@ config, config_path = get_config()
 random.seed()
 
 # Create a summary writer
-train_summary_writer = tf.summary.create_file_writer(os.path.join(config['state_dir'], 'summaries_flow'))
+train_summary_writer = tf.summary.create_file_writer(os.path.join(config['state_dir'], 'summaries_multi'))
 
 # Create the dataset and the global step variable
-flow_ds = Dataset(settings_path=config_path, mode='flow')
+ds = Dataset(settings_path=config_path, mode='train')
 with tf.device('/cpu:0'):
-    global_step = tf.Variable(0, 'global_flow_step')
+    global_step = tf.Variable(0, 'global_multi_step')
 
 # Define the learning rate schedule
-learning_rate_fn, max_train_steps = get_learning_rate_fn(config['flow'], global_step)
+learning_rate_fn, max_train_steps = get_learning_rate_fn(config['multi_frame'], global_step)
 
 # Create an optimizer, the network and the loss class
 opt = tfa.optimizers.LAMB(learning_rate_fn)
@@ -62,38 +61,61 @@ opt = tfa.optimizers.LAMB(learning_rate_fn)
 # Models
 backbone = ResnetBackbone('backbone')
 flow = Flow('flow')
-heads = Heads('heads', config)
+flow_warp = FlowWarp('flow_warp')
+heads = Heads('heads', config, box_delta_regression=True)
 
-flow_loss = FlowLoss('flow_loss')
 if config['train_labels']:
     label_loss = LabelLoss('label_loss', config)
 if config['train_boundingboxes']:
-    box_loss = BoxLoss('box_loss', config)
+    box_loss = BoxLoss('box_loss', config, box_delta_regression=True)
     embedding_loss = EmbeddingLoss('embedding_loss', config)
 
-# Define a training step function for single images
 @tf.function
 def train_step():
-    flow_images, flow_ground_truth, flow_metadata = flow_ds.get_batched_data(config['flow']['batch_size_per_gpu'])
+    images, ground_truth, metadata = ds.get_batched_data(config['multi_frame']['batch_size_per_gpu'])
 
-    ## Optical flow loss
-    current_flow_feature_map = backbone(flow_images['left'], False)
-    previous_flow_feature_map = backbone(flow_images['prev_left'], False)
-    current_flow_feature_map = tf.stop_gradient(current_flow_feature_map)
-    previous_flow_feature_map = tf.stop_gradient(previous_flow_feature_map)
+
+    current_feature_map = backbone(images['left'], False)
+    prev_feature_map = backbone(images['prev_left'], False)
+    bw_flow = flow([prev_feature_map, current_feature_map], False)
     with tf.GradientTape(persistent=True) as tape:
-        flow_results = flow([current_flow_feature_map, previous_flow_feature_map], config['train_batch_norm'])
-        flow_l = flow_loss([flow_results, flow_ground_truth], tf.cast(global_step, tf.int64))
-        vs = flow.trainable_variables + flow_loss.trainable_variables
-        total_loss = flow_l + tf.add_n(flow.losses + flow_loss.losses)
+        feature_map = flow_warp([current_feature_map,
+                                 prev_feature_map,
+                                 bw_flow['flow_0']],
+                                config['train_batch_norm'])
+        results = heads(feature_map, config['train_batch_norm'])
+
+        losses = []
+        if config['train_labels']:
+            losses += [label_loss([results, ground_truth], tf.cast(global_step, tf.int64))]
+        if config['train_boundingboxes']:
+            losses += box_loss([results, ground_truth], tf.cast(global_step, tf.int64))
+            _, _, _, embedding, _ = heads.box_branch(feature_map, config['train_batch_norm'])
+            losses += [embedding_loss([embedding, ground_truth], tf.cast(global_step, tf.int64))]
+
+        ## Sum up all losses
+        summed_losses = tf.add_n(losses)
+        tf.summary.scalar('summed_losses', summed_losses, tf.cast(global_step, tf.int64))
+
+        ## Regularization terms
+        regularizer_losses = flow_warp.losses + heads.losses
+        vs = flow_warp.trainable_variables + heads.trainable_variables
+        if config['train_labels']:
+            regularizer_losses += label_loss.losses
+            vs += label_loss.trainable_variables
+        if config['train_boundingboxes']:
+            regularizer_losses += box_loss.losses + embedding_loss.losses
+            vs += box_loss.trainable_variables + embedding_loss.trainable_variables
+        total_loss = summed_losses + tf.add_n(regularizer_losses)
+
     gs = tape.gradient(total_loss, vs)
     opt.apply_gradients(zip(gs, vs))
     return total_loss
 
 # Load checkpoints
-checkpoint = tf.train.Checkpoint(backbone=backbone, flow=flow, heads=heads,
-                                 flow_loss=flow_loss, label_loss=label_loss, box_loss=box_loss,
-                                 embedding_loss=embedding_loss, optimizer=opt, global_flow_step=global_step)
+checkpoint = tf.train.Checkpoint(backbone=backbone, flow=flow, flow_warp=flow_warp,
+                                 heads=heads, label_loss=label_loss, box_loss=box_loss,
+                                 embedding_loss=embedding_loss, optimizer=opt, global_multi_step=global_step)
 checkpoint_manager = tf.train.CheckpointManager(checkpoint, os.path.join(config['state_dir'], 'checkpoints'), 25)
 checkpoint_status = checkpoint.restore(checkpoint_manager.latest_checkpoint)
 
@@ -115,7 +137,7 @@ while step < max_train_steps:
 
     # Write training progress to console
     if step % 10 == 0:
-        examples_per_step = config['flow']['batch_size_per_gpu']
+        examples_per_step = config['multi_frame']['batch_size_per_gpu']
         sec_per_batch = float(duration)
         examples_per_sec = examples_per_step / duration
 

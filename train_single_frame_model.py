@@ -44,25 +44,20 @@ config, config_path = get_config()
 random.seed()
 
 # Create a summary writer
-train_summary_writer = tf.summary.create_file_writer(os.path.join(config['state_dir'], 'summaries'))
+train_summary_writer = tf.summary.create_file_writer(os.path.join(config['state_dir'], 'summaries_single'))
+val_summary_writer = tf.summary.create_file_writer(os.path.join(config['state_dir'], 'summaries_single_val'))
 
 # Create the dataset and the global step variable
 ds = Dataset(settings_path=config_path, mode='train')
+val_ds = Dataset(settings_path=config_path, mode='val')
 with tf.device('/cpu:0'):
-    global_step = tf.Variable(0, 'global_step')
+    global_step = tf.Variable(0, 'global_single_step')
 
 # Define the learning rate schedule
-max_train_steps = 500000
-
-@tf.function
-def learning_rate_fn():
-    if global_step < tf.constant(250000):
-        return tf.constant(1e-4)
-    else:
-        return tf.constant(1e-5)
+learning_rate_fn, max_train_steps = get_learning_rate_fn(config['single_frame'], global_step)
 
 # Create an optimizer, the network and the loss class
-opt = tf.keras.optimizers.SGD(learning_rate_fn, momentum=0.995)
+opt = tfa.optimizers.LAMB(learning_rate_fn)
 
 # Models
 backbone = ResnetBackbone('backbone')
@@ -70,14 +65,17 @@ heads = Heads('heads', config)
 
 if config['train_labels']:
     label_loss = LabelLoss('label_loss', config)
+    label_loss_val = LabelLoss('label_loss_val', config)
 if config['train_boundingboxes']:
     box_loss = BoxLoss('box_loss', config)
+    box_loss_val = BoxLoss('box_loss_val', config)
     embedding_loss = EmbeddingLoss('embedding_loss', config)
+    embedding_loss_val = EmbeddingLoss('embedding_loss_val', config)
 
 # Define a training step function for single images
 @tf.function
 def single_train_step():
-    images, ground_truth, metadata = ds.get_batched_data(config['batch_size_per_gpu'])
+    images, ground_truth, metadata = ds.get_batched_data(config['single_frame']['batch_size_per_gpu'])
 
     with tf.GradientTape(persistent=True) as tape:
         feature_map = backbone(images['left'], config['train_batch_norm'])
@@ -110,9 +108,27 @@ def single_train_step():
     opt.apply_gradients(zip(gs, vs))
     return total_loss
 
+@tf.function
+def single_val_step():
+    images, ground_truth, metadata = val_ds.get_batched_data(config['single_frame']['batch_size_per_gpu'])
+
+    feature_map = backbone(images['left'], False)
+    results = heads(feature_map, False)
+
+    losses = []
+    if config['train_labels']:
+        losses += [label_loss_val([results, ground_truth], tf.cast(global_step, tf.int64))]
+    if config['train_boundingboxes']:
+        losses += box_loss_val([results, ground_truth], tf.cast(global_step, tf.int64))
+        _, _, _, embedding = heads.box_branch(feature_map, config['train_batch_norm'])
+        losses += [embedding_loss_val([embedding, ground_truth], tf.cast(global_step, tf.int64))]
+    summed_losses = tf.add_n(losses)
+    tf.summary.scalar('summed_val_losses', summed_losses, tf.cast(global_step, tf.int64))
+
+
 # Load checkpoints
 checkpoint = tf.train.Checkpoint(backbone=backbone, heads=heads, label_loss=label_loss, box_loss=box_loss,
-                                 embedding_loss=embedding_loss, optimizer=opt, global_step=global_step)
+                                 embedding_loss=embedding_loss, optimizer=opt, global_single_step=global_step)
 checkpoint_manager = tf.train.CheckpointManager(checkpoint, os.path.join(config['state_dir'], 'checkpoints'), 25)
 checkpoint_status = checkpoint.restore(checkpoint_manager.latest_checkpoint)
 
@@ -134,7 +150,9 @@ while step < max_train_steps:
 
     # Write training progress to console
     if step % 10 == 0:
-        examples_per_step = config['batch_size_per_gpu']
+        with val_summary_writer.as_default():
+            single_val_step()
+        examples_per_step = config['single_frame']['batch_size_per_gpu']
         sec_per_batch = float(duration)
         examples_per_sec = examples_per_step / duration
 
@@ -144,8 +162,8 @@ while step < max_train_steps:
 
     # Save trace
     if step == summary_step:
-        if step > 100:
-            checkpoint_status.assert_existing_objects_matched().assert_consumed()
+        #if step > 100:
+            #checkpoint_status.assert_existing_objects_matched().assert_consumed()
         with train_summary_writer.as_default():
             tf.summary.trace_export("Trace %s" % datetime.now(), step,
                                     profiler_outdir=os.path.join(config['state_dir'], 'summaries'))

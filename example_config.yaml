@@ -13,11 +13,6 @@ sintel_path: ./datasets/sintel
 
 use_sintel_flow: False
 
-# Pretrain settings
-num_pretrain_classes: 1000
-pretrain_batch_size_per_gpu: 8
-pretrain_batch_norm: True
-
 # Select active datasets
 use_cityscapes_train: True
 use_cityscapes_train_extra: True
@@ -37,9 +32,32 @@ eval_image_width: 1024
 eval_image_height: 512
 eval_horizontal_fov: 50
 
-# Training parameter settings
-batch_size_per_gpu: 4
-flow_batch_size_per_gpu: 8
+# Pretrain settings
+pretrain:
+  lr_steps: [10000000]
+  lr_values: [1.0e-4]
+  num_classes: 1000
+  batch_size_per_gpu: 8
+
+# Single frame settings
+single_frame:
+  lr_steps: [1500000, 1750000]
+  lr_values: [1.0e-4, 1.0e-5]
+  batch_size_per_gpu: 4
+
+# Multi frame settings
+multi_frame:
+  lr_steps: [1500000, 1750000]
+  lr_values: [1.0e-4, 1.0e-5]
+  batch_size_per_gpu: 4
+
+# Flow settings
+flow:
+  lr_steps: [1500000]
+  lr_values: [1.0e-4]
+  batch_size_per_gpu: 8
+
+# General settings
 train_batch_norm: True
 
 # Label settings

@@ -22,7 +22,7 @@ class PretrainLoss(tf.keras.Model):
     def __init__(self, name, config):
         super().__init__(name=name)
 
-        self.num_label_classes = config['num_pretrain_classes']
+        self.num_label_classes = config['pretrain']['num_classes']
 
     def call(self, inputs, step):
         result, ground_truth = inputs

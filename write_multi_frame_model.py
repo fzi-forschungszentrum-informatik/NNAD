@@ -25,6 +25,7 @@ import os
 import tensorflow as tf
 
 from model.Heads import *
+from model.Flow import *
 from model.Resnet import *
 from helpers.configreader import *
 from helpers.helpers import *
@@ -39,7 +40,9 @@ class Infer(tf.Module):
 
         self.config = config
         self.backbone = ResnetBackbone('backbone')
-        self.heads = Heads('heads', config)
+        self.flow = Flow('flow')
+        self.flow_warp = FlowWarp('flow_warp')
+        self.heads = Heads('heads', config, box_delta_regression=True)
 
     @tf.function(input_signature=[
             tf.TensorSpec([1, config['eval_image_height'], config['eval_image_width'], 3], tf.float32, 'img')])
@@ -51,11 +54,23 @@ class Infer(tf.Module):
                            int(config['eval_image_height'] / 8),
                            int(config['eval_image_width'] / 8),
                            1024],
-            tf.float32, 'current_features')])
-    def inferHeads(self, current_feature_map):
+            tf.float32, 'current_features'),
+            tf.TensorSpec([1,
+                           int(config['eval_image_height'] / 8),
+                           int(config['eval_image_width'] / 8),
+                           1024],
+            tf.float32, 'prev_features')])
+    def inferHeads(self, current_feature_map, prev_feature_map):
         return_vals = {}
 
-        results = self.heads(current_feature_map, False)
+        bw_flow = self.flow([prev_feature_map, current_feature_map], False)
+        feature_map = self.flow_warp([current_feature_map,
+                                      prev_feature_map,
+                                      bw_flow['flow_0']], False)
+
+        return_vals['bw_flow'] = bw_flow['flow_0']
+
+        results = self.heads(feature_map, False)
 
         if self.config['train_labels']:
             labels = tf.argmax(results['pixelwise_labels'], -1)
@@ -70,24 +85,29 @@ class Infer(tf.Module):
             bb_targets_objectness = tf.slice(tf.nn.softmax(bb_targets_objectness, -1), [0, 1], [-1, 1])
             bb_targets_objectness = tf.reshape(bb_targets_objectness, [-1])
             bb_targets_embedding = tf.reshape(results['bb_targets_embedding'], [-1, self.config['box_embedding_len']])
+            bb_targets_delta = tf.reshape(results['bb_targets_delta'], [-1])
             return_vals['bb_targets_offset'] = bb_targets_offset
             return_vals['bb_targets_cls'] = bb_targets_cls
             return_vals['bb_targets_objectness'] = bb_targets_objectness
             return_vals['bb_targets_embedding'] = bb_targets_embedding
+            return_vals['bb_targets_delta'] = bb_targets_delta
 
         return return_vals
 
     @tf.function(input_signature=[
-            tf.TensorSpec([1, config['eval_image_height'], config['eval_image_width'], 3], tf.float32, 'current_img')])
-    def infer(self, image):
+            tf.TensorSpec([1, config['eval_image_height'], config['eval_image_width'], 3], tf.float32, 'current_img'),
+            tf.TensorSpec([1, config['eval_image_height'], config['eval_image_width'], 3], tf.float32, 'prev_img')])
+    def infer(self, image, prev_image):
         current_feature_map = self.inferBackbone(image)
-        return self.inferHeads(current_feature_map)
+        prev_feature_map = self.inferBackbone(prev_image)
+        return self.inferHeads(current_feature_map, prev_feature_map)
 
 # Create model
 infer = Infer(config)
 
 # Load the latest checkpoint
-checkpoint = tf.train.Checkpoint(backbone=infer.backbone, heads=infer.heads)
+checkpoint = tf.train.Checkpoint(backbone=infer.backbone, flow=infer.flow,
+                                 flow_warp=infer.flow_warp, heads=infer.heads)
 checkpoint_manager = tf.train.CheckpointManager(checkpoint, os.path.join(config['state_dir'], 'checkpoints'), 25)
 checkpoint.restore(checkpoint_manager.latest_checkpoint)
 

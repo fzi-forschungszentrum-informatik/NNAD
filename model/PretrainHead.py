@@ -26,7 +26,7 @@ class PretrainHead(tf.keras.Model):
 
         self.core_branch = ResnetBranch('pretrain_branch')
         self.avg_pool = tf.keras.layers.GlobalAveragePooling2D()
-        self.final_conv = tf.keras.layers.Dense(config['num_pretrain_classes'],
+        self.final_conv = tf.keras.layers.Dense(config['pretrain']['num_classes'],
             kernel_initializer=tf.keras.initializers.he_normal(),
             name='final_conv')
 

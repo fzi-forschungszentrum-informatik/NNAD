@@ -49,14 +49,10 @@ ds = Dataset(settings_path=config_path, mode='pretrain')
 with tf.device('/cpu:0'):
     global_step = tf.Variable(0, 'global_pretrain_step')
 
-# Define a learning rate schedule
-max_pretrain_steps = 10000000
-
-def learning_rate_fn():
-    return tf.constant(1e-4)
+learning_rate_fn, max_train_steps = get_learning_rate_fn(config['pretrain'], global_step)
 
 # Create an optimizer, the network and the loss class
-opt = tf.keras.optimizers.SGD(learning_rate_fn, momentum=0.995)
+opt = tfa.optimizers.LAMB(learning_rate_fn)
 
 # Models
 backbone = ResnetBackbone('backbone', pretrain=True)
@@ -66,10 +62,10 @@ pretrain_loss = PretrainLoss('pretrain_loss', config)
 # Define a training step function
 @tf.function
 def train_step():
-    images, ground_truth, metadata = ds.get_batched_data(config['pretrain_batch_size_per_gpu'])
+    images, ground_truth, metadata = ds.get_batched_data(config['pretrain']['batch_size_per_gpu'])
     with tf.GradientTape() as tape:
-        feature_map = backbone(images['left'], config['pretrain_batch_norm'])
-        result = pretrain_head(feature_map, config['pretrain_batch_norm'])
+        feature_map = backbone(images['left'], config['train_batch_norm'])
+        result = pretrain_head(feature_map, config['train_batch_norm'])
         loss = pretrain_loss([result, ground_truth], tf.cast(global_step, tf.int64))
 
         loss = loss + tf.add_n(backbone.losses + pretrain_head.losses + pretrain_loss.losses)
@@ -88,7 +84,7 @@ checkpoint_status = checkpoint.restore(checkpoint_manager.latest_checkpoint)
 # Training loop
 step = global_step.numpy()
 summary_step = step + 20
-while step < max_pretrain_steps:
+while step < max_train_steps:
     # Enable trace
     if step == summary_step:
         tf.summary.trace_on()
@@ -103,7 +99,7 @@ while step < max_pretrain_steps:
 
     # Write training progress to console
     if step % 10 == 0:
-        examples_per_step = config['pretrain_batch_size_per_gpu']
+        examples_per_step = config['pretrain']['batch_size_per_gpu']
         sec_per_batch = float(duration)
         examples_per_sec = examples_per_step / duration
 
@@ -118,7 +114,7 @@ while step < max_pretrain_steps:
         tf.summary.trace_export("Trace", step)
 
     # Save checkpoints
-    if step > 0 and (step % 1000 == 0 or (step + 1) == max_pretrain_steps):
+    if step > 0 and (step % 1000 == 0 or (step + 1) == max_train_steps):
         checkpoint_manager.save(global_step)
 
     # Increase step counter
