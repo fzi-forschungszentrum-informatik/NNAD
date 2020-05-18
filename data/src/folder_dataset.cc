@@ -45,6 +45,7 @@ std::shared_ptr<DatasetEntry> FolderDataset::get(std::size_t i)
     cv::Mat leftImg = cv::imread(leftImgPath.string());
     CHECK(leftImg.data, "Failed to read image " + leftImgPath.string());
     result->input.left = toFloatMat(leftImg);
+    result->input.prevLeft = toFloatMat(leftImg);
     result->metadata.originalWidth = result->input.left.cols;
     result->metadata.originalHeight = result->input.left.rows;
     result->metadata.canFlip = false;

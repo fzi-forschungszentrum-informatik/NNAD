@@ -29,6 +29,7 @@
 
 #include "absl/base/config.h"
 #undef ABSL_HAVE_STD_STRING_VIEW
+#undef ABSL_USES_STD_STRING_VIEW
 #include "tensorflow/core/framework/shape_inference.h"
 #include "tensorflow/core/framework/op_kernel.h"
 
@@ -88,6 +89,38 @@ public:
 
             if (checkAndGet<bool>("use_kitti_train", config)) {
                 auto dataset = std::make_shared<KittiDataset>(kittiPath, KittiDataset::Mode::Train);
+                datasets.push_back(std::make_shared<RandomDataset>(dataset));
+            }
+        } else if (mode == "val") {
+            int width = checkAndGet<int>("eval_image_width", config);
+            int height = checkAndGet<int>("eval_image_height", config);
+
+            m_resizer = std::make_unique<CropResize>(cv::Size(width, height), -1.0, false);
+
+            if (checkAndGet<bool>("use_cityscapes_val", config)) {
+                createBBUtils(width, height);
+                auto dataset = std::make_shared<CityscapesDataset>(cityscapesPath, CityscapesDataset::Mode::Val);
+                datasets.push_back(std::make_shared<RandomDataset>(dataset));
+            }
+            if (checkAndGet<bool>("use_cityscapes_test", config)) {
+                createBBUtils(width, height);
+                auto dataset = std::make_shared<CityscapesDataset>(cityscapesPath, CityscapesDataset::Mode::Test);
+                datasets.push_back(std::make_shared<RandomDataset>(dataset));
+            }
+
+            if (checkAndGet<bool>("use_kitti_val", config)) {
+                createBBUtils(width, height);
+                auto dataset = std::make_shared<KittiDataset>(kittiPath, KittiDataset::Mode::Val);
+                datasets.push_back(std::make_shared<RandomDataset>(dataset));
+            }
+            if (checkAndGet<bool>("use_kitti_test", config)) {
+                createBBUtils(width, height);
+                auto dataset = std::make_shared<KittiDataset>(kittiPath, KittiDataset::Mode::Test);
+                datasets.push_back(std::make_shared<RandomDataset>(dataset));
+            }
+
+            if (checkAndGet<bool>("use_folder_ds", config)) {
+                auto dataset = std::make_shared<FolderDataset>(folderDsPath);
                 datasets.push_back(std::make_shared<RandomDataset>(dataset));
             }
         } else if (mode == "test") {

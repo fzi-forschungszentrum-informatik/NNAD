@@ -54,7 +54,6 @@ std::string SintelDataset::nextKey(std::string &key) const
     std::string prefix = remainder.substr(0, pos);
     std::string frameno = remainder.substr(pos + 1);
 
-    /* We go two images back to have a larger displacement / a lower simulated frame rate */
     int numericFrameno = std::stoi(frameno) + 1;
 
     std::ostringstream result;
@@ -100,13 +99,13 @@ std::shared_ptr<DatasetEntry> SintelDataset::get(std::size_t i)
 
 std::vector<cv::Mat> SintelDataset::flowPyramid(cv::Mat flow) const
 {
-    int initialScale = 8;
+    float initialScale = 8.0;
     int numLevels = 5;
 
     std::vector<cv::Mat> result;
 
     cv::resize(flow, flow, cv::Size(), 1.0 / initialScale, 1.0 / initialScale);
-    flow *= 1.0 / 8.0;
+    flow *= 1.0 / initialScale;
     result.push_back(flow);
     for (int i = 1; i < numLevels; i++) {
         cv::resize(flow, flow, cv::Size(), 1.0 / 2.0, 1.0 / 2.0);
@@ -130,7 +129,7 @@ cv::Mat SintelDataset::readFlowImg(std::string filename) const
     file.read(reinterpret_cast<char *>(result.data), 2 * width * height * sizeof(float));
     file.close();
 
-    /* Change the cannel order so that it matches what is expected by tfa.image.dense_image_warp */
+    /* Change the channel order so that it matches what is expected by tfa.image.dense_image_warp */
     cv::Mat swappedResult(result.rows, result.cols, CV_32FC2);
     int mapping[] = {0, 1, 1, 0};
     cv::mixChannels(&result, 1, &swappedResult, 1, mapping, 2);
