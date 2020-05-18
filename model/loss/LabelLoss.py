@@ -17,6 +17,7 @@
 ##########################################################################
 
 import tensorflow as tf
+from .losses import *
 from .WeightKendall import *
 
 class LabelLoss(tf.keras.Model):
@@ -41,7 +42,8 @@ class LabelLoss(tf.keras.Model):
         masked_gt_labels = tf.boolean_mask(gt_labels, label_mask)
 
         masked_gt_labels = tf.stop_gradient(masked_gt_labels)
-        loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=masked_labels, labels=masked_gt_labels)
+        #loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=masked_labels, labels=masked_gt_labels)
+        loss = sparse_focal_loss(logits=masked_labels, labels=masked_gt_labels)
         loss = tf.reduce_sum(loss) / (tf.cast(shape[0], tf.float32) * tf.cast(shape[1], tf.float32) * tf.cast(shape[2], tf.float32))
 
         correct_prediction = tf.equal(tf.cast(tf.argmax(masked_labels, 1), tf.int32), masked_gt_labels)

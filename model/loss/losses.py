@@ -19,20 +19,18 @@
 import tensorflow as tf
 
 # Losses for bounding boxes
-def focal_loss(logits, labels, gamma=2.0, alpha=0.25):
+def focal_loss(logits, labels, gamma=2.0):
     with tf.name_scope("focal_loss") as scope:
         logits = tf.nn.softmax(logits)
-        alpha = alpha * tf.ones_like(labels)
-        alpha = tf.where(tf.equal(labels, 1), alpha, 1. - alpha)
         focal_weight = tf.where(tf.equal(labels, 1), 1. - logits, logits)
-        focal_weight = alpha * focal_weight**gamma
+        focal_weight = focal_weight**gamma
         losses = focal_weight * tf.keras.backend.binary_crossentropy(labels, logits)
         return tf.reduce_sum(losses)
 
-def sparse_focal_loss(logits, labels, gamma=2.0, alpha=0.25):
+def sparse_focal_loss(logits, labels, gamma=2.0):
     depth = logits.get_shape().as_list()[1]
     labels = tf.one_hot(labels, depth)
-    return focal_loss(logits, labels, gamma=gamma, alpha=alpha)
+    return focal_loss(logits, labels, gamma=gamma)
 
 def smooth_l1_loss(logits, labels):
     diff = tf.abs(logits - labels)
