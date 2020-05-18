@@ -21,7 +21,7 @@ from .losses import *
 from .WeightKendall import *
 
 class BoxLoss(tf.keras.Model):
-    def __init__(self, name, config):
+    def __init__(self, name, config, box_delta_regression=False):
         super().__init__(name=name)
 
         self.num_bb_classes = config['num_bb_classes']
@@ -30,6 +30,9 @@ class BoxLoss(tf.keras.Model):
         self.weight_objectness = WeightKendall('weight_objectness')
         self.weight_class = WeightKendall('weight_class')
         self.weight_bb = WeightKendall('weight_bb')
+        if box_delta_regression:
+            self.weight_delta = WeightKendall('weight_delta')
+        self.box_delta_regression = box_delta_regression
 
     def call(self, inputs, step):
         results, ground_truth = inputs
@@ -63,9 +66,10 @@ class BoxLoss(tf.keras.Model):
         masked_gt_targets_cls = tf.stop_gradient(masked_gt_targets_cls)
         masked_gt_targets_obj = tf.stop_gradient(masked_gt_targets_obj)
         masked_gt_targets_bb = tf.stop_gradient(masked_gt_targets_bb)
-        obj_loss = sparse_focal_loss(logits=masked_targets_obj, labels=masked_gt_targets_obj, alpha=1.0, gamma=1.2)
-        cls_loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=masked_targets_cls,
-                                                                  labels=masked_gt_targets_cls)
+        obj_loss = sparse_focal_loss(logits=masked_targets_obj, labels=masked_gt_targets_obj)
+        cls_loss = sparse_focal_loss(logits=masked_targets_cls, labels=masked_gt_targets_cls)
+        #cls_loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=masked_targets_cls,
+        #                                                          labels=masked_gt_targets_cls)
         bb_loss = smooth_l1_loss(logits=masked_targets_bb, labels=masked_gt_targets_bb)
         obj_loss = tf.where(tf.reduce_any(mask_obj), tf.reduce_mean(obj_loss), 0.0)
         cls_loss = tf.where(tf.reduce_any(mask_bb), tf.reduce_mean(cls_loss), 0.0)
@@ -84,4 +88,28 @@ class BoxLoss(tf.keras.Model):
         tf.summary.scalar('bb_obj_loss', obj_loss, step)
         tf.summary.scalar('bb_box_loss', bb_loss, step)
 
-        return cls_loss, obj_loss, bb_loss
+        losses = [cls_loss, obj_loss, bb_loss]
+
+        if self.box_delta_regression:
+            targets_delta = results['bb_targets_delta']
+            gt_targets_delta = ground_truth['bb_targets_delta']
+            gt_targets_delta_valid = ground_truth['bb_targets_delta_valid']
+
+            targets_delta = tf.reshape(targets_delta, [-1, 4])
+            gt_targets_delta = tf.reshape(gt_targets_delta, [-1, 4])
+            gt_targets_delta_valid = tf.reshape(gt_targets_delta_valid, [-1])
+
+            mask_delta = tf.equal(gt_targets_delta_valid, tf.constant(1))
+            masked_targets_delta = tf.boolean_mask(targets_delta, mask_delta)
+            masked_gt_targets_delta = tf.boolean_mask(gt_targets_delta, mask_delta)
+            delta_loss = smooth_l1_loss(logits=masked_targets_delta, labels=masked_gt_targets_delta)
+            delta_loss = tf.where(tf.reduce_any(mask_delta), tf.reduce_mean(delta_loss), 0.0)
+
+            # Apply some sensible scaling before loss weighting
+            delta_loss *= 20.0
+
+            delta_loss = self.weight_delta(delta_loss, step)
+            tf.summary.scalar('bb_delta_loss', delta_loss, step)
+            losses += [delta_loss]
+
+        return losses

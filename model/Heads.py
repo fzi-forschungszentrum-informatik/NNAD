@@ -21,7 +21,7 @@ from .LabelBranch import *
 from .BoxBranch import *
 
 class Heads(tf.keras.Model):
-    def __init__(self, name, config):
+    def __init__(self, name, config, box_delta_regression=False):
         super().__init__(name=name)
 
         if config['train_labels']:
@@ -30,9 +30,11 @@ class Heads(tf.keras.Model):
             self.label_branch = None
 
         if config['train_boundingboxes']:
-            self.box_branch = BoxBranch('box_branch', config)
+            self.box_branch = BoxBranch('box_branch', config, box_delta_regression)
         else:
             self.box_branch = None
+
+        self.box_delta_regression = box_delta_regression
 
     def call(self, x, train_batch_norm=False):
         results = {}
@@ -42,11 +44,16 @@ class Heads(tf.keras.Model):
             results['pixelwise_labels'] = labels
 
         if self.box_branch:
-            bb_targets, cls_targets, obj_targets, embedding_targets = \
-                self.box_branch(x, train_batch_norm=train_batch_norm)
+            box_results = self.box_branch(x, train_batch_norm=train_batch_norm)
+            if self.box_delta_regression:
+                bb_targets, cls_targets, obj_targets, embedding_targets, delta_targets = box_results
+            else:
+                bb_targets, cls_targets, obj_targets, embedding_targets = box_results
             results['bb_targets_offset'] = bb_targets
             results['bb_targets_cls'] = cls_targets
             results['bb_targets_objectness'] = obj_targets
             results['bb_targets_embedding'] = embedding_targets
+            if self.box_delta_regression:
+                results['bb_targets_delta'] = delta_targets
 
         return results

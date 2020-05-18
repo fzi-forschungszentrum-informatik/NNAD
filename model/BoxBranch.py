@@ -47,7 +47,7 @@ class SingleDecoder(tf.keras.Model):
         return x
 
 class BoxDecoder(tf.keras.Model):
-    def __init__(self, name, config):
+    def __init__(self, name, config, box_delta_regression=False):
         super().__init__(name=name)
 
         boxes_per_pos = config['boxes_per_pos']
@@ -58,6 +58,10 @@ class BoxDecoder(tf.keras.Model):
         self.obj_decoder = SingleDecoder('obj_decoder', 2 * boxes_per_pos, 64)
         self.embedding_decoder = SingleDecoder('embedding_decoder',
                                                config['box_embedding_len'] * boxes_per_pos, 128)
+
+        self.delta_decoder = None
+        if box_delta_regression:
+            self.delta_decoder = SingleDecoder('delta_decoder', 4 * boxes_per_pos, 64)
 
     def call(self, x, train_batch_norm=False):
         n = x.get_shape().as_list()[0]
@@ -73,10 +77,16 @@ class BoxDecoder(tf.keras.Model):
         embeding = tf.math.l2_normalize(embedding, axis=-1)
         embedding = tf.reshape(embedding, [n, -1, self.config['box_embedding_len'] * self.config['boxes_per_pos']])
 
-        return box, cls, obj, embedding
+        results = [box, cls, obj, embedding]
+
+        if self.delta_decoder:
+            delta = self.delta_decoder(x, train_batch_norm=train_batch_norm)
+            results += [delta]
+
+        return results
 
 class BoxBranch(tf.keras.Model):
-    def __init__(self, name, config):
+    def __init__(self, name, config, box_delta_regression=False):
         super().__init__(name=name)
         self.core_branch = ResnetBranch('box_branch')
 
@@ -85,7 +95,9 @@ class BoxBranch(tf.keras.Model):
         self.downsample3 = ResnetModule('downsample_3', [512, 512, 1024], stride=2)
         self.downsample4 = ResnetModule('downsample_4', [512, 512, 1024], stride=2)
 
-        self.decoder = BoxDecoder('decoder', config)
+        self.decoder = BoxDecoder('decoder', config, box_delta_regression)
+
+        self.box_delta_regression = box_delta_regression
 
     def call(self, x, train_batch_norm=False):
         x = self.core_branch(x, train_batch_norm=train_batch_norm)
@@ -108,4 +120,10 @@ class BoxBranch(tf.keras.Model):
         obj = tf.concat([entry[2] for entry in res], axis=1)
         embedding = tf.concat([entry[3] for entry in res], axis=1)
 
-        return box, cls, obj, embedding
+        results = [box, cls, obj, embedding]
+
+        if self.box_delta_regression:
+            delta_regression = tf.concat([entry[4] for entry in res], axis=1)
+            results += [delta_regression]
+
+        return results
