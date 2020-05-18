@@ -2,5 +2,6 @@
 *.kdev4
 data/build
 config.yaml
+config*.yaml
 __pycache__
 test_out
