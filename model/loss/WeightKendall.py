@@ -24,8 +24,14 @@ class WeightKendall(tf.keras.layers.Layer):
         self.factor = self.add_weight("s", [], initializer=tf.ones_initializer)
 
     def call(self, loss, step):
+        s_clipped = tf.clip_by_value(self.factor, 0.05, 20.0)
+        self.factor.assign(s_clipped)
+
         tf.summary.scalar('s', self.factor, step)
         # This does not match our ICPRAM 2020 paper but the original paper. It seems that there was an error
         # in the ICPRAM 2020 paper.
+        if loss == tf.constant(0.0):
+            # We don't want to update s if the loss was masked
+            return 0.0
         return loss / (2.0 * self.factor * self.factor) + tf.math.log(self.factor)
 
