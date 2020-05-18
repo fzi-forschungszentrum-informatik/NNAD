@@ -58,11 +58,16 @@ def _image(image):
     image = np.flip(image, -1) # BGR to RGB
     return image
 
-def write_flow_img(flow, metadata, path):
+def write_flow_img(flow, metadata, path, forward):
     key, width, height = _image_metadata(metadata)
     flow = _labels(flow)
 
-    image_path = os.path.join(path, 'flow', key + '.png')
+    if forward:
+        directory = 'fw_flow'
+    else:
+        directory = 'bw_flow'
+
+    image_path = os.path.join(path, directory, key + '.png')
     ensure_path(image_path)
     flow_x = flow[:, :, 0]
     flow_y = flow[:, :, 1]
