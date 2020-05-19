@@ -108,6 +108,12 @@ public:
                 datasets.push_back(std::make_shared<RandomDataset>(dataset));
             }
 
+            if (checkAndGet<bool>("use_bdd100k_val_tracking", config)) {
+                auto dataset = std::make_shared<Bdd100kDataset>(bdd100kPath,
+                                                                Bdd100kDataset::Mode::ValTracking);
+                datasets.push_back(std::make_shared<RandomDataset>(dataset));
+            }
+
             if (checkAndGet<bool>("use_kitti_val", config)) {
                 createBBUtils(width, height);
                 auto dataset = std::make_shared<KittiDataset>(kittiPath, KittiDataset::Mode::Val);
@@ -137,6 +143,12 @@ public:
             if (checkAndGet<bool>("use_cityscapes_test", config)) {
                 createBBUtils(width, height);
                 auto dataset = std::make_shared<CityscapesDataset>(cityscapesPath, CityscapesDataset::Mode::Test);
+                datasets.push_back(dataset);
+            }
+
+            if (checkAndGet<bool>("use_bdd100k_val_tracking", config)) {
+                auto dataset = std::make_shared<Bdd100kDataset>(bdd100kPath,
+                                                                Bdd100kDataset::Mode::ValTracking);
                 datasets.push_back(dataset);
             }
 

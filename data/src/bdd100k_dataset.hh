@@ -30,6 +30,7 @@ class Bdd100kDataset : public FileDataset {
 public:
     enum class Mode {
         TrainTracking = 0,
+        ValTracking,
     };
 
     Bdd100kDataset(bfs::path basePath, Mode mode);

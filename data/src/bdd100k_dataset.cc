@@ -31,6 +31,11 @@ Bdd100kDataset::Bdd100kDataset(bfs::path basePath, Mode mode)
         m_leftImgPath = basePath / bfs::path("images") / bfs::path("track") / bfs::path("train");
         m_hasSequence = true;
         break;
+    case Mode::ValTracking:
+        m_groundTruthPath = basePath / bfs::path("labels-20") / bfs::path("box-track") / bfs::path("val");
+        m_leftImgPath = basePath / bfs::path("images") / bfs::path("track") / bfs::path("val");
+        m_hasSequence = true;
+        break;
     default:
         CHECK(false, "Unknown mode!");
     }
