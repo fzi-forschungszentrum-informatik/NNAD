@@ -46,6 +46,8 @@ private:
 
     const std::map<std::string, int32_t> m_instanceDict { //TODO
         {"person", 0},
+        {"pedestrian", 0},
+        {"other person", 0},
         {"rider", 1},
         {"car", 2},
         {"truck", 3},
