@@ -27,13 +27,15 @@ class EmbeddingLoss(tf.keras.Model):
 
         self.weight = WeightKendall('weight_embedding')
 
-    def _embedding_loss(self, embeddings, ids):
+    def _embedding_loss(self, embeddings, ids, mask_bdd):
         assignment_losses = []
         for i in range(len(ids)):
             batch_box_ids = tf.reshape(ids[i], [-1])
             batch_embeddings = tf.reshape(embeddings[i], [-1, self.box_embedding_len])
+            batch_mask_bdd = tf.reshape(mask_bdd[i], [-1])
 
             mask = tf.math.greater(batch_box_ids, 0)
+            mask = tf.logical_and(mask, batch_mask_bdd)
             num_mask = tf.reduce_sum(tf.cast(mask, tf.float32))
             MAX_NUM_SAMPLES = 5000.0
             EPS = 1e-5
@@ -52,7 +54,13 @@ class EmbeddingLoss(tf.keras.Model):
         embeddings = tf.unstack(embeddings, axis=0)
         ids = tf.unstack(ground_truth['bb_targets_id'], axis=0)
 
-        embedding_loss = self._embedding_loss(embeddings, ids)
+        # TODO NOTE: We can use the "deltaValid" flag to identify training
+        # examples from the BDD100K dataset for now. This is a bad HACK and
+        # we should fix it in the future though...
+        delta_valid = ground_truth['bb_targets_delta_valid']
+        mask_bdd = tf.not_equal(delta_valid, tf.constant(1))
+
+        embedding_loss = self._embedding_loss(embeddings, ids, mask_bdd)
 
         # Apply some sensible scaling before loss weighting
         embedding_loss *= 10.0

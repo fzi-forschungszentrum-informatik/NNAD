@@ -51,13 +51,22 @@ class BoxLoss(tf.keras.Model):
         gt_targets_cls = tf.reshape(gt_targets_cls, [-1])
         gt_targets_obj = tf.reshape(gt_targets_obj, [-1])
 
+        # TODO NOTE: We can use the "deltaValid" flag to identify training
+        # examples from the BDD100K dataset for now. This is a bad HACK and
+        # we should fix it in the future though...
+        delta_valid = ground_truth['bb_targets_delta_valid']
+        delta_valid = tf.reshape(delta_valid, [-1])
+        mask_bdd = tf.not_equal(delta_valid, tf.constant(1))
+
         # -1 is the ignore label for boxes
         mask_obj = tf.not_equal(gt_targets_obj, tf.constant([-1]))
+        mask_obj = tf.logical_and(mask_obj, mask_bdd)
         masked_targets_obj = tf.boolean_mask(targets_obj, mask_obj)
         masked_gt_targets_obj = tf.boolean_mask(gt_targets_obj, mask_obj)
 
         # We do not care for bounding box regression or classification of targets that do not correspond to an object
         mask_bb = tf.equal(gt_targets_obj, tf.constant([1]))
+        mask_bb = tf.logical_and(mask_bb, mask_bdd)
         masked_targets_bb = tf.boolean_mask(targets_bb, mask_bb)
         masked_gt_targets_bb = tf.boolean_mask(gt_targets_bb, mask_bb)
         masked_targets_cls = tf.boolean_mask(targets_cls, mask_bb)

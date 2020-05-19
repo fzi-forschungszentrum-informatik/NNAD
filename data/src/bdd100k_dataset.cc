@@ -191,9 +191,15 @@ BoundingBoxList Bdd100kDataset::parseJson(const std::string jsonStr, std::string
                 previousBoundingBox.y2 = oldYMax;
                 bbList.previousBoxes.push_back(previousBoundingBox);
                 boundingBox.setDeltaFromPrevious(previousBoundingBox);
-            }
 
-            bbList.boxes.push_back(boundingBox);
+                /* TODO NOTE: We only push boxes that have a valid delta displacement.
+                 * We do not want to train the class, objectness or box regression on
+                 * the BDD100K dataset, but only the displacement vector.
+                 * So we use the "deltaValid" flag to identify training examples from
+                 * the BDD100K dataset for now. This is a bad HACK and we should fix it
+                 * in the future. */
+                bbList.boxes.push_back(boundingBox);
+            }
         }
     }
 
