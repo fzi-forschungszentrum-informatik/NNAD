@@ -50,7 +50,7 @@ def get_learning_rate_fn(config, global_step):
     def learning_rate_fn():
         lr = tf.constant(0.0)
         for i in range(len(lr_steps)):
-            if global_step < lr_steps and lr == tf.constant(0.0):
+            if global_step < lr_steps[i] and lr == tf.constant(0.0):
                 lr = lr_values[i]
         return lr
 
