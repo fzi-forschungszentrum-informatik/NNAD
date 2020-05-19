@@ -71,7 +71,10 @@ class Dataset(object):
             for i in range(len(self.input_keys)):
                 inputs[self.input_keys[i]] = tf.stack(lists[i + 0])
             for i in range(len(self.gt_keys)):
-                gt[self.gt_keys[i]] = tf.stack(lists[i + len(self.input_keys)])
+                if self.gt_keys[i] == 'bb_list':
+                    gt[self.gt_keys[i]] = tf.ragged.stack(lists[i + len(self.input_keys)])
+                else:
+                    gt[self.gt_keys[i]] = tf.stack(lists[i + len(self.input_keys)])
             for i in range(len(self.metadata_keys)):
                 metadata[self.metadata_keys[i]] = tf.stack(lists[i + len(self.input_keys) + len(self.gt_keys)])
 
