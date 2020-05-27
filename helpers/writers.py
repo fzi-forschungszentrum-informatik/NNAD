@@ -21,6 +21,7 @@ import scipy as sp
 import skimage.draw
 import PIL
 import os
+import json
 
 from helpers.helpers import *
 
@@ -107,7 +108,7 @@ def write_boxes_txt(boxes, image, metadata, path):
     key, width, height = _image_metadata(metadata)
     image = _image(image)
 
-    txt_path = os.path.join(path, 'boxes', key + '.txt')
+    txt_path = os.path.join(path, 'boxes_txt', key + '.txt')
     ensure_path(txt_path)
     inference_height = np.shape(image)[0]
     inference_width = np.shape(image)[1]
@@ -125,6 +126,39 @@ def write_boxes_txt(boxes, image, metadata, path):
             x2 = float(box.x2) * width / inference_width
             y2 = float(box.y2) * height / inference_height
             fh.write('%s 0.0 0.0 0.0 %d %d %d %d 0.0 0.0 0.0 0.0 0.0 0.0 0.0 %f\n' % (cls, x1, y1, x2, y2, score))
+
+def write_boxes_json(boxes, image, metadata, path):
+    key, width, height = _image_metadata(metadata)
+    image = _image(image)
+
+    json_path = os.path.join(path, 'boxes_json', key + '.json')
+    ensure_path(json_path)
+    inference_height = np.shape(image)[0]
+    inference_width = np.shape(image)[1]
+    width_factor = float(width / inference_width)
+    height_factor = float(height / inference_height)
+
+    data = {}
+    data['boxes'] = []
+    for i in range(len(boxes)):
+        boxdata = {}
+        boxdata['score'] = boxes[i].score
+        boxdata['embedding'] = boxes[i].embedding
+        box = boxes[i].box
+        boxdata['cls'] = box.cls
+        box = boxes[i].box
+        boxdata['x1'] = float(box.x1) * width_factor
+        boxdata['y1'] = float(box.y1) * height_factor
+        boxdata['x2'] = float(box.x2) * width_factor
+        boxdata['y2'] = float(box.y2) * height_factor
+        boxdata['dxc'] = float(box.dxc) * width_factor
+        boxdata['dyc'] = float(box.dyc) * height_factor
+        boxdata['dw'] = float(box.dw) * width_factor
+        boxdata['dh'] = float(box.dh) * height_factor
+        data['boxes'].append(boxdata)
+
+    with open(json_path, 'w') as fh:
+        json.dump(data, fh)
 
 def write_debug_boundingbox_img(boxes, image, metadata, path):
     key, width, height = _image_metadata(metadata)

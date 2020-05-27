@@ -92,6 +92,7 @@ while True:
         bb_eval.add(gt['bb_list'].numpy(), boxes)
 
         write_boxes_txt(boxes, inp['left'], metadata, out_dir)
+        write_boxes_json(boxes, inp['left'], metadata, out_dir)
         write_debug_boundingbox_img(boxes, inp['left'], metadata, out_dir)
 
     imgs += 1

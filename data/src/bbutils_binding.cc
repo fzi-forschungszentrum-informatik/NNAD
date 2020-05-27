@@ -107,6 +107,7 @@ PYBIND11_MODULE(bbutils, module) {
     pybind11::class_<BoundingBoxDetection>(module, "BoundingBoxDetection")
         .def(pybind11::init<>())
         .def_readwrite("score", &BoundingBoxDetection::score)
+        .def_readwrite("embedding", &BoundingBoxDetection::embedding)
         .def_readwrite("box", &BoundingBoxDetection::box);
 
     pybind11::class_<BoundingBox>(module, "BoundingBox")
