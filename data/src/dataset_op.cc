@@ -17,6 +17,7 @@
  **************************************************************************/
 
 #include "bdd100k_dataset.hh"
+#include "bdd100kseg_dataset.hh"
 #include "cityscapes_dataset.hh"
 #include "flyingchairs_dataset.hh"
 #include "kitti_dataset.hh"
@@ -87,6 +88,12 @@ public:
                 datasets.push_back(std::make_shared<RandomDataset>(dataset));
             }
 
+            if (checkAndGet<bool>("use_bdd100k_seg_train", config)) {
+                auto dataset = std::make_shared<Bdd100kSegDataset>(bdd100kPath,
+                                                                   Bdd100kSegDataset::Mode::Train);
+                datasets.push_back(std::make_shared<RandomDataset>(dataset));
+            }
+
             if (checkAndGet<bool>("use_kitti_train", config)) {
                 auto dataset = std::make_shared<KittiDataset>(kittiPath, KittiDataset::Mode::Train);
                 datasets.push_back(std::make_shared<RandomDataset>(dataset));
@@ -111,6 +118,17 @@ public:
             if (checkAndGet<bool>("use_bdd100k_val_tracking", config)) {
                 auto dataset = std::make_shared<Bdd100kDataset>(bdd100kPath,
                                                                 Bdd100kDataset::Mode::ValTracking);
+                datasets.push_back(std::make_shared<RandomDataset>(dataset));
+            }
+
+            if (checkAndGet<bool>("use_bdd100k_seg_val", config)) {
+                auto dataset = std::make_shared<Bdd100kSegDataset>(bdd100kPath,
+                                                                   Bdd100kSegDataset::Mode::Val);
+                datasets.push_back(std::make_shared<RandomDataset>(dataset));
+            }
+            if (checkAndGet<bool>("use_bdd100k_seg_test", config)) {
+                auto dataset = std::make_shared<Bdd100kSegDataset>(bdd100kPath,
+                                                                   Bdd100kSegDataset::Mode::Test);
                 datasets.push_back(std::make_shared<RandomDataset>(dataset));
             }
 
@@ -149,6 +167,17 @@ public:
             if (checkAndGet<bool>("use_bdd100k_val_tracking", config)) {
                 auto dataset = std::make_shared<Bdd100kDataset>(bdd100kPath,
                                                                 Bdd100kDataset::Mode::ValTracking);
+                datasets.push_back(dataset);
+            }
+
+            if (checkAndGet<bool>("use_bdd100k_seg_val", config)) {
+                auto dataset = std::make_shared<Bdd100kSegDataset>(bdd100kPath,
+                                                                   Bdd100kSegDataset::Mode::Val);
+                datasets.push_back(dataset);
+            }
+            if (checkAndGet<bool>("use_bdd100k_seg_test", config)) {
+                auto dataset = std::make_shared<Bdd100kSegDataset>(bdd100kPath,
+                                                                   Bdd100kSegDataset::Mode::Test);
                 datasets.push_back(dataset);
             }
 
