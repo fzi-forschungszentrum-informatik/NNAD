@@ -39,7 +39,7 @@ public:
 private:
     std::tuple<std::string, int> splitKey(std::string key) const;
     std::string keyToPrev(std::string key) const;
-    BoundingBoxList parseJson(const std::string jsonStr, std::string keyPrefix, int seqNo, cv::Size imageSize) const;
+    std::tuple<cv::Mat, BoundingBoxList> parseJson(const std::string jsonStr, std::string keyPrefix, int seqNo, cv::Size imageSize) const;
 
     bfs::path m_groundTruthPath;
     bfs::path m_leftImgPath;

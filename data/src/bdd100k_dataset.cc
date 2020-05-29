@@ -105,8 +105,9 @@ std::shared_ptr<DatasetEntry> Bdd100kDataset::get(std::size_t i)
     auto jsonPath = m_groundTruthPath / bfs::path(keyPrefix + std::string(".json"));
     std::ifstream jsonFs(jsonPath.string());
     std::string jsonStr = std::string(std::istreambuf_iterator<char>(jsonFs), std::istreambuf_iterator<char>());
-    auto bbList = parseJson(jsonStr, keyPrefix, seqNo, result->input.left.size());
+    auto [bbDontCareAreas, bbList] = parseJson(jsonStr, keyPrefix, seqNo, result->input.left.size());
     result->gt.bbList = bbList;
+    result->gt.bbDontCareAreas = bbDontCareAreas;
     result->gt.pixelwiseLabels = cv::Mat(result->input.left.size(), CV_32SC1, cv::Scalar(m_semanticDontCareLabel));
     result->metadata.originalWidth = result->input.left.cols;
     result->metadata.originalHeight = result->input.left.rows;
@@ -116,12 +117,14 @@ std::shared_ptr<DatasetEntry> Bdd100kDataset::get(std::size_t i)
     return result;
 }
 
-BoundingBoxList Bdd100kDataset::parseJson(const std::string jsonStr, std::string keyPrefix, int seqNo, cv::Size imageSize) const
+std::tuple<cv::Mat, BoundingBoxList> Bdd100kDataset::parseJson(const std::string jsonStr, std::string keyPrefix, int seqNo, cv::Size imageSize) const
 {
     Json::Value root;
     Json::Reader reader;
     bool success = reader.parse(jsonStr, root);
     CHECK(success, "Failed to parse JSON string");
+
+    cv::Mat bbDontCareImg(imageSize, CV_32SC1, cv::Scalar(m_boundingBoxValidLabel));
 
     BoundingBoxList bbList;
     bbList.valid = true;
@@ -146,16 +149,21 @@ BoundingBoxList Bdd100kDataset::parseJson(const std::string jsonStr, std::string
     }
 
     for (auto &annotation : currentRoot) {
+        int32_t xMin = static_cast<int32_t>(annotation["box2d"]["x1"].asDouble());
+        int32_t xMax = static_cast<int32_t>(annotation["box2d"]["x2"].asDouble());
+        int32_t yMin = static_cast<int32_t>(annotation["box2d"]["y1"].asDouble());
+        int32_t yMax = static_cast<int32_t>(annotation["box2d"]["y2"].asDouble());
+        if (annotation["attributes"]["Crowd"].asBool()) {
+            cv::rectangle(bbDontCareImg, cv::Point(xMin, yMin), cv::Point(xMax, yMax), cv::Scalar(m_boundingBoxDontCareLabel), CV_FILLED);
+            continue;
+        }
+
         std::string id = annotation["id"].asString();
         if (id.empty()) {
             std::cout << "Skipping annotation " << annotation << std::endl;
             continue;
         }
         std::string cls = annotation["category"].asString();
-        int32_t xMin = static_cast<int32_t>(annotation["box2d"]["x1"].asDouble());
-        int32_t xMax = static_cast<int32_t>(annotation["box2d"]["x2"].asDouble());
-        int32_t yMin = static_cast<int32_t>(annotation["box2d"]["y1"].asDouble());
-        int32_t yMax = static_cast<int32_t>(annotation["box2d"]["y2"].asDouble());
 
         int32_t oldXMin = 0;
         int32_t oldXMax = 0;
@@ -202,6 +210,6 @@ BoundingBoxList Bdd100kDataset::parseJson(const std::string jsonStr, std::string
         }
     }
 
-    return bbList;
+    return {bbDontCareImg, bbList};
 }
 
