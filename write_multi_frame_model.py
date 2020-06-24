@@ -26,7 +26,8 @@ import tensorflow as tf
 
 from model.Heads import *
 from model.Flow import *
-from model.Resnet import *
+from model.EfficientNet import *
+from model.BiFPN import *
 from helpers.configreader import *
 from helpers.helpers import *
 
@@ -39,34 +40,39 @@ class Infer(tf.Module):
         super().__init__()
 
         self.config = config
-        self.backbone = ResnetBackbone('backbone')
-        self.flow = Flow('flow')
-        self.flow_warp = FlowWarp('flow_warp')
+        self.backbone = EfficientNet('backbone', BACKBONE_ARGS)
+        self.fpn1 = BiFPN('bifpn1', BIFPN_NUM_FEATURES, int(BIFPN_NUM_BLOCKS / 2), True)
+        self.fpn2 = BiFPN('bifpn2', BIFPN_NUM_FEATURES, BIFPN_NUM_BLOCKS - int(BIFPN_NUM_BLOCKS / 2), False)
+        self.flow = Flow('flow', BIFPN_NUM_FEATURES)
+        self.flow_warp = FlowWarp('flow_warp', BIFPN_NUM_FEATURES)
         self.heads = Heads('heads', config, box_delta_regression=True)
 
     @tf.function(input_signature=[
             tf.TensorSpec([1, config['eval_image_height'], config['eval_image_width'], 3], tf.float32, 'img')])
     def inferBackbone(self, image):
-        return self.backbone(image, False)
+        features = self.backbone(image, False)
+        features = self.fpn1(features, False)
+        return features
 
     @tf.function(input_signature=[
-            tf.TensorSpec([1,
-                           int(config['eval_image_height'] / 8),
-                           int(config['eval_image_width'] / 8),
-                           1024],
-            tf.float32, 'current_features'),
-            tf.TensorSpec([1,
-                           int(config['eval_image_height'] / 8),
-                           int(config['eval_image_width'] / 8),
-                           1024],
-            tf.float32, 'prev_features')])
+            [tf.TensorSpec([1,
+                           int(config['eval_image_height'] / 2**(i+3)),
+                           int(config['eval_image_width'] / 2**(i+3)),
+                           BIFPN_NUM_FEATURES],
+             tf.float32, 'current_features_{}'.format(i)) for i in range(5)],
+            [tf.TensorSpec([1,
+                           int(config['eval_image_height'] / 2**(i+3)),
+                           int(config['eval_image_width'] / 2**(i+3)),
+                           BIFPN_NUM_FEATURES],
+             tf.float32, 'prev_features_{}'.format(i)) for i in range(5)]])
     def inferHeads(self, current_feature_map, prev_feature_map):
         return_vals = {}
 
         bw_flow = self.flow([prev_feature_map, current_feature_map], False)
         feature_map = self.flow_warp([current_feature_map,
                                       prev_feature_map,
-                                      bw_flow['flow_0']], False)
+                                      bw_flow], False)
+        feature_map = self.fpn2(feature_map, False)
 
         return_vals['bw_flow'] = bw_flow['flow_0']
 
@@ -106,7 +112,7 @@ class Infer(tf.Module):
 infer = Infer(config)
 
 # Load the latest checkpoint
-checkpoint = tf.train.Checkpoint(backbone=infer.backbone, flow=infer.flow,
+checkpoint = tf.train.Checkpoint(backbone=infer.backbone, fpn1=infer.fpn1, fpn2=infer.fpn2, flow=infer.flow,
                                  flow_warp=infer.flow_warp, heads=infer.heads)
 checkpoint_manager = tf.train.CheckpointManager(checkpoint, os.path.join(config['state_dir'], 'checkpoints'), 25)
 checkpoint.restore(checkpoint_manager.latest_checkpoint)

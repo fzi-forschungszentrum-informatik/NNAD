@@ -29,8 +29,9 @@ import numpy as np
 import tensorflow as tf
 import tensorflow_addons as tfa
 
+from model.constants import *
 from model.PretrainHead import *
-from model.Resnet import *
+from model.EfficientNet import *
 from model.loss.PretrainLoss import *
 from data import *
 from helpers.configreader import *
@@ -55,7 +56,7 @@ learning_rate_fn, max_train_steps = get_learning_rate_fn(config['pretrain'], glo
 opt = tfa.optimizers.LAMB(learning_rate_fn)
 
 # Models
-backbone = ResnetBackbone('backbone', pretrain=True)
+backbone = EfficientNet('backbone', BACKBONE_ARGS)
 pretrain_head = PretrainHead('pretrain_head', config)
 pretrain_loss = PretrainLoss('pretrain_loss', config)
 
@@ -64,8 +65,8 @@ pretrain_loss = PretrainLoss('pretrain_loss', config)
 def train_step():
     images, ground_truth, metadata = ds.get_batched_data(config['pretrain']['batch_size_per_gpu'])
     with tf.GradientTape() as tape:
-        feature_map = backbone(images['left'], config['train_batch_norm'])
-        result = pretrain_head(feature_map, config['train_batch_norm'])
+        feature_map = backbone(images['left'], True)
+        result = pretrain_head(feature_map, True)
         loss = pretrain_loss([result, ground_truth], tf.cast(global_step, tf.int64))
 
         loss = loss + tf.add_n(backbone.losses + pretrain_head.losses + pretrain_loss.losses)
@@ -110,7 +111,7 @@ while step < max_train_steps:
     # Save trace
     if step == summary_step:
         if step > 100:
-            checkpoint_status.assert_existing_objects_matched().assert_consumed()
+            checkpoint_status.assert_existing_objects_matched()
         tf.summary.trace_export("Trace", step)
 
     # Save checkpoints

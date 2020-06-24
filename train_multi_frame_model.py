@@ -29,9 +29,11 @@ import numpy as np
 import tensorflow as tf
 import tensorflow_addons as tfa
 
+from model.constants import *
 from model.Heads import *
+from model.EfficientNet import *
+from model.BiFPN import *
 from model.Flow import *
-from model.Resnet import *
 from model.loss.LabelLoss import *
 from model.loss.BoxLoss import *
 from model.loss.EmbeddingLoss import *
@@ -59,9 +61,11 @@ learning_rate_fn, max_train_steps = get_learning_rate_fn(config['multi_frame'], 
 opt = tfa.optimizers.LAMB(learning_rate_fn)
 
 # Models
-backbone = ResnetBackbone('backbone')
-flow = Flow('flow')
-flow_warp = FlowWarp('flow_warp')
+backbone = EfficientNet('backbone', BACKBONE_ARGS)
+fpn1 = BiFPN('bifpn1', BIFPN_NUM_FEATURES, int(BIFPN_NUM_BLOCKS / 2), True)
+fpn2 = BiFPN('bifpn2', BIFPN_NUM_FEATURES, BIFPN_NUM_BLOCKS - int(BIFPN_NUM_BLOCKS / 2), False)
+flow = Flow('flow', BIFPN_NUM_FEATURES)
+flow_warp = FlowWarp('flow_warp', BIFPN_NUM_FEATURES)
 heads = Heads('heads', config, box_delta_regression=True)
 
 if config['train_labels']:
@@ -76,21 +80,24 @@ def train_step():
 
 
     current_feature_map = backbone(images['left'], False)
+    current_feature_map = fpn1(current_feature_map, False)
     prev_feature_map = backbone(images['prev_left'], False)
+    prev_feature_map = fpn1(prev_feature_map, False)
     bw_flow = flow([prev_feature_map, current_feature_map], False)
     with tf.GradientTape(persistent=True) as tape:
         feature_map = flow_warp([current_feature_map,
                                  prev_feature_map,
-                                 bw_flow['flow_0']],
-                                config['train_batch_norm'])
-        results = heads(feature_map, config['train_batch_norm'])
+                                 bw_flow],
+                                True)
+        feature_map = fpn2(feature_map, True)
+        results = heads(feature_map, True)
 
         losses = []
         if config['train_labels']:
             losses += [label_loss([results, ground_truth], tf.cast(global_step, tf.int64))]
         if config['train_boundingboxes']:
             losses += box_loss([results, ground_truth], tf.cast(global_step, tf.int64))
-            _, _, _, embedding, _ = heads.box_branch(feature_map, config['train_batch_norm'])
+            _, _, _, embedding, _ = heads.box_branch(feature_map, True)
             losses += [embedding_loss([embedding, ground_truth], tf.cast(global_step, tf.int64))]
 
         ## Sum up all losses
@@ -98,8 +105,8 @@ def train_step():
         tf.summary.scalar('summed_losses', summed_losses, tf.cast(global_step, tf.int64))
 
         ## Regularization terms
-        regularizer_losses = flow_warp.losses + heads.losses
-        vs = flow_warp.trainable_variables + heads.trainable_variables
+        regularizer_losses = flow_warp.losses + fpn2.losses + heads.losses
+        vs = flow_warp.trainable_variables + fpn2.trainable_variables + heads.trainable_variables
         if config['train_labels']:
             regularizer_losses += label_loss.losses
             vs += label_loss.trainable_variables
@@ -113,7 +120,7 @@ def train_step():
     return total_loss
 
 # Load checkpoints
-checkpoint = tf.train.Checkpoint(backbone=backbone, flow=flow, flow_warp=flow_warp,
+checkpoint = tf.train.Checkpoint(backbone=backbone, fpn1=fpn1, fpn2=fpn2, flow=flow, flow_warp=flow_warp,
                                  heads=heads, label_loss=label_loss, box_loss=box_loss,
                                  embedding_loss=embedding_loss, optimizer=opt, global_multi_step=global_step)
 checkpoint_manager = tf.train.CheckpointManager(checkpoint, os.path.join(config['state_dir'], 'checkpoints'), 25)

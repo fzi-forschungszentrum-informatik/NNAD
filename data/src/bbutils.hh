@@ -48,7 +48,7 @@ private:
                         BoundingBoxDetection &boxDetection) const;
 
     std::vector<double> m_ratios = {0.25, 0.5, 1.0, 2.0, 4.0};
-    std::vector<int> m_areas = {4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 128, 192};
+    std::vector<int> m_areas = {12, 16, 24, 32};
     std::vector<AnchorBox> m_anchorBoxes;
 
     int m_width;

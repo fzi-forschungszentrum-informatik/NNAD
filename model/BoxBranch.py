@@ -19,19 +19,19 @@
 import tensorflow as tf
 import numpy as np
 from .constants import *
-from .Resnet import *
+from .Common import *
 
 class SingleDecoder(tf.keras.Model):
-    def __init__(self, name, num_output_channels, channels):
+    def __init__(self, name, num_output_channels):
         super().__init__(name=name)
 
         self.num_output_channels = num_output_channels
 
-        self.rm1 = ResnetModule('resnet_module_1', [channels, channels, 2 * channels])
-        self.rm2 = ResnetModule('resnet_module_2', [channels, channels, 2 * channels])
+        self.conv_block = SeparableConvBlock('conv_block', HEADS_NUM_BLOCKS, BIFPN_NUM_FEATURES)
+
         self.last_conv = tf.keras.layers.Conv2D(num_output_channels,
                 (1, 1),
-                kernel_initializer=tf.keras.initializers.he_normal(),
+                kernel_initializer=KERNEL_INITIALIZER,
                 name='last_conv')
 
     def call(self, x, train_batch_norm=False):
@@ -40,8 +40,7 @@ class SingleDecoder(tf.keras.Model):
         if n is None:
             n = 1
 
-        x = self.rm1(x, train_batch_norm=train_batch_norm)
-        x = self.rm2(x, train_batch_norm=train_batch_norm)
+        x = self.conv_block(x, training=train_batch_norm)
         x = self.last_conv(x)
         x = tf.reshape(x, [n, -1, self.num_output_channels])
         return x
@@ -50,18 +49,17 @@ class BoxDecoder(tf.keras.Model):
     def __init__(self, name, config, box_delta_regression=False):
         super().__init__(name=name)
 
-        boxes_per_pos = config['boxes_per_pos']
         self.config = config
 
-        self.box_decoder = SingleDecoder('box_decoder', 4 * boxes_per_pos, 64)
-        self.cls_decoder = SingleDecoder('cls_decoder', config['num_bb_classes'] * boxes_per_pos, 64)
-        self.obj_decoder = SingleDecoder('obj_decoder', 2 * boxes_per_pos, 64)
+        self.box_decoder = SingleDecoder('box_decoder', 4 * BOXES_PER_POS)
+        self.cls_decoder = SingleDecoder('cls_decoder', config['num_bb_classes'] * BOXES_PER_POS)
+        self.obj_decoder = SingleDecoder('obj_decoder', 2 * BOXES_PER_POS)
         self.embedding_decoder = SingleDecoder('embedding_decoder',
-                                               config['box_embedding_len'] * boxes_per_pos, 128)
+                                               config['box_embedding_len'] * BOXES_PER_POS)
 
         self.delta_decoder = None
         if box_delta_regression:
-            self.delta_decoder = SingleDecoder('delta_decoder', 4 * boxes_per_pos, 64)
+            self.delta_decoder = SingleDecoder('delta_decoder', 4 * BOXES_PER_POS)
 
     def call(self, x, train_batch_norm=False):
         n = x.get_shape().as_list()[0]
@@ -75,7 +73,7 @@ class BoxDecoder(tf.keras.Model):
         embedding = self.embedding_decoder(x, train_batch_norm=train_batch_norm)
         embedding = tf.reshape(embedding, [n, -1, self.config['box_embedding_len']])
         embeding = tf.math.l2_normalize(embedding, axis=-1)
-        embedding = tf.reshape(embedding, [n, -1, self.config['box_embedding_len'] * self.config['boxes_per_pos']])
+        embedding = tf.reshape(embedding, [n, -1, self.config['box_embedding_len'] * BOXES_PER_POS])
 
         results = [box, cls, obj, embedding]
 
@@ -88,25 +86,13 @@ class BoxDecoder(tf.keras.Model):
 class BoxBranch(tf.keras.Model):
     def __init__(self, name, config, box_delta_regression=False):
         super().__init__(name=name)
-        self.core_branch = ResnetBranch('box_branch')
-
-        self.downsample1 = ResnetModule('downsample_1', [512, 512, 1024], stride=2)
-        self.downsample2 = ResnetModule('downsample_2', [512, 512, 1024], stride=2)
-        self.downsample3 = ResnetModule('downsample_3', [512, 512, 1024], stride=2)
-        self.downsample4 = ResnetModule('downsample_4', [512, 512, 1024], stride=2)
 
         self.decoder = BoxDecoder('decoder', config, box_delta_regression)
 
         self.box_delta_regression = box_delta_regression
 
     def call(self, x, train_batch_norm=False):
-        x = self.core_branch(x, train_batch_norm=train_batch_norm)
-
-        p3 = x
-        p4 = self.downsample1(p3, train_batch_norm=train_batch_norm)
-        p5 = self.downsample2(p4, train_batch_norm=train_batch_norm)
-        p6 = self.downsample3(p5, train_batch_norm=train_batch_norm)
-        p7 = self.downsample4(p6, train_batch_norm=train_batch_norm)
+        p3, p4, p5, p6, p7 = x
 
         res = []
         res += [self.decoder(p3, train_batch_norm=train_batch_norm)]

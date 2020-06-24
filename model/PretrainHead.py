@@ -18,20 +18,31 @@
 
 import tensorflow as tf
 from .constants import *
-from .Resnet import *
 
 class PretrainHead(tf.keras.Model):
     def __init__(self, name, config):
         super().__init__(name=name)
 
-        self.core_branch = ResnetBranch('pretrain_branch')
+        self.pre_conv = tf.keras.layers.Conv2D(config['pretrain']['num_classes'],
+                                               1,
+                                               padding='same',
+                                               use_bias=False,
+                                               kernel_initializer=KERNEL_INITIALIZER,
+                                               kernel_regularizer=tf.keras.regularizers.l2(L2_REGULARIZER_WEIGHT),
+                                               name='pre_conv')
+        self.norm = Normalization()
+        self.activation = tf.keras.layers.Activation('swish')
         self.avg_pool = tf.keras.layers.GlobalAveragePooling2D()
         self.final_conv = tf.keras.layers.Dense(config['pretrain']['num_classes'],
-            kernel_initializer=tf.keras.initializers.he_normal(),
+            kernel_initializer=KERNEL_INITIALIZER,
             name='final_conv')
 
-    def call(self, x, train_batch_norm=False):
-        x = self.core_branch(x, train_batch_norm=train_batch_norm)
+    def call(self, inputs, training=False):
+        p3, p4, p5 = inputs
+        x = p5
+        x = self.pre_conv(x)
+        x = self.norm(x, training=training)
+        x = self.activation(x)
         x = self.avg_pool(x)
         x = self.final_conv(x)
         return x

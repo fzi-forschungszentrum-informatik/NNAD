@@ -29,8 +29,10 @@ import numpy as np
 import tensorflow as tf
 import tensorflow_addons as tfa
 
+from model.constants import *
 from model.Heads import *
-from model.Resnet import *
+from model.EfficientNet import *
+from model.BiFPN import *
 from model.loss.LabelLoss import *
 from model.loss.BoxLoss import *
 from model.loss.EmbeddingLoss import *
@@ -60,7 +62,9 @@ learning_rate_fn, max_train_steps = get_learning_rate_fn(config['single_frame'],
 opt = tfa.optimizers.LAMB(learning_rate_fn)
 
 # Models
-backbone = ResnetBackbone('backbone')
+backbone = EfficientNet('backbone', BACKBONE_ARGS)
+fpn1 = BiFPN('bifpn1', BIFPN_NUM_FEATURES, int(BIFPN_NUM_BLOCKS / 2), True)
+fpn2 = BiFPN('bifpn2', BIFPN_NUM_FEATURES, BIFPN_NUM_BLOCKS - int(BIFPN_NUM_BLOCKS / 2), False)
 heads = Heads('heads', config)
 
 if config['train_labels']:
@@ -78,15 +82,17 @@ def single_train_step():
     images, ground_truth, metadata = ds.get_batched_data(config['single_frame']['batch_size_per_gpu'])
 
     with tf.GradientTape(persistent=True) as tape:
-        feature_map = backbone(images['left'], config['train_batch_norm'])
-        results = heads(feature_map, config['train_batch_norm'])
+        feature_map = backbone(images['left'], True)
+        feature_map = fpn1(feature_map, True)
+        feature_map = fpn2(feature_map, True)
+        results = heads(feature_map, True)
 
         losses = []
         if config['train_labels']:
             losses += [label_loss([results, ground_truth], tf.cast(global_step, tf.int64))]
         if config['train_boundingboxes']:
             losses += box_loss([results, ground_truth], tf.cast(global_step, tf.int64))
-            _, _, _, embedding = heads.box_branch(feature_map, config['train_batch_norm'])
+            _, _, _, embedding = heads.box_branch(feature_map, True)
             losses += [embedding_loss([embedding, ground_truth], tf.cast(global_step, tf.int64))]
 
         ## Sum up all losses
@@ -94,8 +100,8 @@ def single_train_step():
         tf.summary.scalar('summed_losses', summed_losses, tf.cast(global_step, tf.int64))
 
         ## Regularization terms
-        regularizer_losses = backbone.losses + heads.losses
-        vs = backbone.trainable_variables + heads.trainable_variables
+        regularizer_losses = backbone.losses + fpn1.losses + fpn2.losses + heads.losses
+        vs = backbone.trainable_variables + fpn1.trainable_variables + fpn2.trainable_variables + heads.trainable_variables
         if config['train_labels']:
             regularizer_losses += label_loss.losses
             vs += label_loss.trainable_variables
@@ -113,6 +119,8 @@ def single_val_step():
     images, ground_truth, metadata = val_ds.get_batched_data(config['single_frame']['batch_size_per_gpu'])
 
     feature_map = backbone(images['left'], False)
+    feature_map = fpn1(feature_map, False)
+    feature_map = fpn2(feature_map, False)
     results = heads(feature_map, False)
 
     losses = []
@@ -120,14 +128,14 @@ def single_val_step():
         losses += [label_loss_val([results, ground_truth], tf.cast(global_step, tf.int64))]
     if config['train_boundingboxes']:
         losses += box_loss_val([results, ground_truth], tf.cast(global_step, tf.int64))
-        _, _, _, embedding = heads.box_branch(feature_map, config['train_batch_norm'])
+        _, _, _, embedding = heads.box_branch(feature_map, True)
         losses += [embedding_loss_val([embedding, ground_truth], tf.cast(global_step, tf.int64))]
     summed_losses = tf.add_n(losses)
     tf.summary.scalar('summed_val_losses', summed_losses, tf.cast(global_step, tf.int64))
 
 
 # Load checkpoints
-checkpoint = tf.train.Checkpoint(backbone=backbone, heads=heads, label_loss=label_loss, box_loss=box_loss,
+checkpoint = tf.train.Checkpoint(backbone=backbone, fpn1=fpn1, fpn2=fpn2, heads=heads, label_loss=label_loss, box_loss=box_loss,
                                  embedding_loss=embedding_loss, optimizer=opt, global_single_step=global_step)
 checkpoint_manager = tf.train.CheckpointManager(checkpoint, os.path.join(config['state_dir'], 'checkpoints'), 25)
 checkpoint_status = checkpoint.restore(checkpoint_manager.latest_checkpoint)

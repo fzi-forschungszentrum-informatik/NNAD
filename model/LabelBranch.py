@@ -18,44 +18,43 @@
 
 import tensorflow as tf
 from .constants import *
-from .Resnet import *
 
 class Upsample(tf.keras.Model):
     def __init__(self, name, factor, num_output_channels):
         super().__init__(name=name)
 
         self.bn = Normalization()
+        self.activation = tf.keras.layers.Activation('swish')
 
         kernel_size = 2 * factor - factor % 2
         self.transposed_conv = tf.keras.layers.Conv2DTranspose(num_output_channels,
             (kernel_size, kernel_size),
             (factor, factor),
             padding='same',
-            kernel_initializer=tf.keras.initializers.he_normal(),
+            kernel_initializer=KERNEL_INITIALIZER,
             kernel_regularizer=tf.keras.regularizers.l2(L2_REGULARIZER_WEIGHT),
             name='transposed_conv')
 
     def call(self, x, train_batch_norm=False):
-        x = self.bn(x, training=train_batch_norm)
         x = self.transposed_conv(x)
-        x = tf.nn.relu(x)
+        x = self.bn(x, training=train_batch_norm)
+        x = self.activation(x)
         return x
 
 class LabelBranch(tf.keras.Model):
     def __init__(self, name, config):
         super().__init__(name=name)
 
-        self.core_branch = ResnetBranch('label_branch')
-        self.upsample1 = Upsample('upsample1', 2, 128)
-        self.upsample2 = Upsample('upsample2', 2, 64)
-        self.upsample3 = Upsample('upsample2', 2, 32)
+        self.upsample1 = Upsample('upsample1', 2, config['num_label_classes'] * 2)
+        self.upsample2 = Upsample('upsample2', 2, config['num_label_classes'] * 2)
+        self.upsample3 = Upsample('upsample2', 2, config['num_label_classes'] * 2)
         self.final_conv = tf.keras.layers.Conv2D(config['num_label_classes'],
             (1, 1),
-            kernel_initializer=tf.keras.initializers.he_normal(),
+            kernel_initializer=KERNEL_INITIALIZER,
             name='final_conv')
 
     def call(self, x, train_batch_norm=False):
-        x = self.core_branch(x, train_batch_norm=train_batch_norm)
+        x, _, _, _, _ = x # We only care about feature level P3 here
         x = self.upsample1(x, train_batch_norm=train_batch_norm)
         x = self.upsample2(x, train_batch_norm=train_batch_norm)
         x = self.upsample3(x, train_batch_norm=train_batch_norm)

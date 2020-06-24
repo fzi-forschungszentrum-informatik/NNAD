@@ -24,8 +24,10 @@ import os
 
 import tensorflow as tf
 
+from model.constants import *
 from model.Heads import *
-from model.Resnet import *
+from model.EfficientNet import *
+from model.BiFPN import *
 from helpers.configreader import *
 from helpers.helpers import *
 
@@ -38,20 +40,25 @@ class Infer(tf.Module):
         super().__init__()
 
         self.config = config
-        self.backbone = ResnetBackbone('backbone')
+        self.backbone = EfficientNet('backbone', BACKBONE_ARGS)
+        self.fpn1 = BiFPN('bifpn1', BIFPN_NUM_FEATURES, int(BIFPN_NUM_BLOCKS / 2), True)
+        self.fpn2 = BiFPN('bifpn2', BIFPN_NUM_FEATURES, BIFPN_NUM_BLOCKS - int(BIFPN_NUM_BLOCKS / 2), False)
         self.heads = Heads('heads', config)
 
     @tf.function(input_signature=[
             tf.TensorSpec([1, config['eval_image_height'], config['eval_image_width'], 3], tf.float32, 'img')])
     def inferBackbone(self, image):
-        return self.backbone(image, False)
+        features = self.backbone(image, False)
+        features = self.fpn1(features, False)
+        features = self.fpn2(features, False)
+        return features
 
-    @tf.function(input_signature=[
+    @tf.function(input_signature=[[
             tf.TensorSpec([1,
-                           int(config['eval_image_height'] / 8),
-                           int(config['eval_image_width'] / 8),
-                           1024],
-            tf.float32, 'current_features')])
+                           int(config['eval_image_height'] / 2**(i+3)),
+                           int(config['eval_image_width'] / 2**(i+3)),
+                           BIFPN_NUM_FEATURES],
+            tf.float32, 'current_features_{}'.format(i)) for i in range(5)]])
     def inferHeads(self, current_feature_map):
         return_vals = {}
 
@@ -87,7 +94,7 @@ class Infer(tf.Module):
 infer = Infer(config)
 
 # Load the latest checkpoint
-checkpoint = tf.train.Checkpoint(backbone=infer.backbone, heads=infer.heads)
+checkpoint = tf.train.Checkpoint(backbone=infer.backbone, fpn1=infer.fpn1, fpn2=infer.fpn2, heads=infer.heads)
 checkpoint_manager = tf.train.CheckpointManager(checkpoint, os.path.join(config['state_dir'], 'checkpoints'), 25)
 checkpoint.restore(checkpoint_manager.latest_checkpoint)
 

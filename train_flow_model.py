@@ -29,13 +29,12 @@ import numpy as np
 import tensorflow as tf
 import tensorflow_addons as tfa
 
+from model.constants import *
 from model.Heads import *
-from model.Resnet import *
+from model.EfficientNet import *
+from model.BiFPN import *
 from model.Flow import *
 from model.loss.FlowLoss import *
-from model.loss.LabelLoss import *
-from model.loss.BoxLoss import *
-from model.loss.EmbeddingLoss import *
 from data import *
 from helpers.configreader import *
 
@@ -60,16 +59,11 @@ learning_rate_fn, max_train_steps = get_learning_rate_fn(config['flow'], global_
 opt = tfa.optimizers.LAMB(learning_rate_fn)
 
 # Models
-backbone = ResnetBackbone('backbone')
-flow = Flow('flow')
-heads = Heads('heads', config)
+backbone = EfficientNet('backbone', BACKBONE_ARGS)
+fpn1 = BiFPN('bifpn1', BIFPN_NUM_FEATURES, int(BIFPN_NUM_BLOCKS / 2), True)
+flow = Flow('flow', BIFPN_NUM_FEATURES)
 
 flow_loss = FlowLoss('flow_loss')
-if config['train_labels']:
-    label_loss = LabelLoss('label_loss', config)
-if config['train_boundingboxes']:
-    box_loss = BoxLoss('box_loss', config)
-    embedding_loss = EmbeddingLoss('embedding_loss', config)
 
 # Define a training step function for single images
 @tf.function
@@ -78,11 +72,13 @@ def train_step():
 
     ## Optical flow loss
     current_flow_feature_map = backbone(flow_images['left'], False)
+    current_flow_feature_map = fpn1(current_flow_feature_map, False)
     previous_flow_feature_map = backbone(flow_images['prev_left'], False)
-    current_flow_feature_map = tf.stop_gradient(current_flow_feature_map)
-    previous_flow_feature_map = tf.stop_gradient(previous_flow_feature_map)
+    previous_flow_feature_map = fpn1(previous_flow_feature_map, False)
+    current_flow_feature_map = [tf.stop_gradient(x) for x in current_flow_feature_map]
+    previous_flow_feature_map = [tf.stop_gradient(x) for x in previous_flow_feature_map]
     with tf.GradientTape(persistent=True) as tape:
-        flow_results = flow([current_flow_feature_map, previous_flow_feature_map], config['train_batch_norm'])
+        flow_results = flow([current_flow_feature_map, previous_flow_feature_map], True)
         flow_l = flow_loss([flow_results, flow_ground_truth], tf.cast(global_step, tf.int64))
         vs = flow.trainable_variables + flow_loss.trainable_variables
         total_loss = flow_l + tf.add_n(flow.losses + flow_loss.losses)
@@ -91,9 +87,8 @@ def train_step():
     return total_loss
 
 # Load checkpoints
-checkpoint = tf.train.Checkpoint(backbone=backbone, flow=flow, heads=heads,
-                                 flow_loss=flow_loss, label_loss=label_loss, box_loss=box_loss,
-                                 embedding_loss=embedding_loss, optimizer=opt, global_flow_step=global_step)
+checkpoint = tf.train.Checkpoint(backbone=backbone, fpn1=fpn1, flow=flow,
+                                 flow_loss=flow_loss, optimizer=opt, global_flow_step=global_step)
 checkpoint_manager = tf.train.CheckpointManager(checkpoint, os.path.join(config['state_dir'], 'checkpoints'), 25)
 checkpoint_status = checkpoint.restore(checkpoint_manager.latest_checkpoint)
 
