@@ -143,7 +143,7 @@ struct TargetBoxDetection {
 };
 
 struct BoundingBoxList {
-    BoundingBoxList() : width(0), height(0), valid(false)
+    BoundingBoxList() : width(0), height(0), valid(false), previousValid(false)
     {
     }
 
