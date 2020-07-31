@@ -77,7 +77,7 @@ class BoxLoss(tf.keras.Model):
 
         # Apply some sensible scaling before loss weighting
         obj_loss *= 0.001
-        cls_loss *= 10.0
+        cls_loss *= 0.01
         bb_loss *= 20.0
 
         obj_loss = self.weight_objectness(obj_loss, step)

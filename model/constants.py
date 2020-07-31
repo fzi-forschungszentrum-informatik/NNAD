@@ -23,7 +23,7 @@ from thirdparty.online_norm import *
 L2_REGULARIZER_WEIGHT=1e-4
 
 def Normalization():
-    return OnlineNorm(alpha_fwd=0.99, alpha_bkw=0.9)
+    return OnlineNorm(alpha_fwd=0.999, alpha_bkw=0.99)
 
 KERNEL_INITIALIZER = tf.keras.initializers.VarianceScaling(2.0, mode='fan_out', distribution='normal')
 
