@@ -67,8 +67,8 @@ std::shared_ptr<DatasetEntry> FlyingchairsDataset::get(std::size_t i)
 
 std::vector<cv::Mat> FlyingchairsDataset::flowPyramid(cv::Mat flow) const
 {
-    float initialScale = 8.0;
-    int numLevels = 5;
+    float initialScale = 4.0;
+    int numLevels = 6;
 
     std::vector<cv::Mat> result;
 

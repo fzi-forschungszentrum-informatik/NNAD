@@ -92,9 +92,10 @@ class BoxBranch(tf.keras.Model):
         self.box_delta_regression = box_delta_regression
 
     def call(self, x, train_batch_norm=False):
-        p3, p4, p5, p6, p7 = x
+        p2, p3, p4, p5, p6, p7 = x
 
         res = []
+        res += [self.decoder(p2, train_batch_norm=train_batch_norm)]
         res += [self.decoder(p3, train_batch_norm=train_batch_norm)]
         res += [self.decoder(p4, train_batch_norm=train_batch_norm)]
         res += [self.decoder(p5, train_batch_norm=train_batch_norm)]

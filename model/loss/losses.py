@@ -19,7 +19,7 @@
 import tensorflow as tf
 
 # Losses for bounding boxes
-def focal_loss(logits, labels, gamma=2.0):
+def focal_loss(logits, labels, gamma=1.5):
     with tf.name_scope("focal_loss") as scope:
         logits = tf.nn.softmax(logits)
         focal_weight = tf.where(tf.equal(labels, 1), 1. - logits, logits)
@@ -27,20 +27,20 @@ def focal_loss(logits, labels, gamma=2.0):
         losses = focal_weight * tf.keras.backend.binary_crossentropy(labels, logits)
         return tf.reduce_sum(losses)
 
-def sparse_focal_loss(logits, labels, gamma=2.0):
+def sparse_focal_loss(logits, labels, gamma=1.5):
     depth = logits.get_shape().as_list()[1]
     labels = tf.one_hot(labels, depth)
     return focal_loss(logits, labels, gamma=gamma)
 
-def smooth_l1_loss(logits, labels):
+def smooth_l1_loss(logits, labels, delta):
     diff = tf.abs(logits - labels)
-    loss = tf.where(diff < 1.0, 0.5 * diff * diff, diff - 0.5)
+    loss = tf.where(diff < delta, 0.5 * diff * diff, delta * diff - 0.5 * delta * delta)
     return loss
 
 # Metric learning loss
-def smooth_l1_diff(diff):
+def smooth_l1_diff(diff, delta):
     diff = tf.abs(diff)
-    loss = tf.where(diff < 1.0, 0.5 * diff * diff, diff - 0.5)
+    loss = tf.where(diff < delta, 0.5 * diff * diff, delta * diff - 0.5 * delta * delta)
     return loss
 
 def get_pairwise_distances(features):
@@ -63,7 +63,7 @@ def get_pairwise_distances(features):
 
 # This is Margin Loss and not Contrastive Loss as used in the ICPRAM 2020 paper.
 # But that paper did not use the embedding anyways.
-def metric_loss(labels, embeddings, alpha = 0.2, beta=1.0):
+def metric_loss(labels, embeddings, alpha = 0.2, beta=1.2):
     with tf.device('/cpu:0'):
         distances = get_pairwise_distances(embeddings)
 
@@ -74,7 +74,7 @@ def metric_loss(labels, embeddings, alpha = 0.2, beta=1.0):
         mask_positives = tf.cast(adjacency, dtype=tf.dtypes.float32)
         mask_negatives = tf.cast(adjacency_not, dtype=tf.dtypes.float32)
 
-        num_entries = tf.reduce_sum(mask_positives) + tf.reduce_sum(mask_negatives)
+        num_entries = 100.0 # HACK #tf.reduce_sum(mask_positives) + tf.reduce_sum(mask_negatives)
 
         pos_dist = distances - (beta - alpha)
         pos_dist = tf.math.maximum(pos_dist, 0.0)

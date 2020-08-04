@@ -18,45 +18,43 @@
 
 import tensorflow as tf
 from .constants import *
+from .Common import *
 
 class Upsample(tf.keras.Model):
-    def __init__(self, name, factor, num_output_channels):
+    def __init__(self, name, factor, num_output_channels, bn_and_activation=True):
         super().__init__(name=name)
 
-        self.bn = Normalization()
-        self.activation = tf.keras.layers.Activation('swish')
+        self.bn = None
+        if bn_and_activation:
+            self.bn = Normalization()
+            self.activation = tf.keras.layers.Activation('swish')
 
         kernel_size = 2 * factor - factor % 2
         self.transposed_conv = tf.keras.layers.Conv2DTranspose(num_output_channels,
             (kernel_size, kernel_size),
             (factor, factor),
             padding='same',
+            use_bias=not bn_and_activation,
             kernel_initializer=KERNEL_INITIALIZER,
-            kernel_regularizer=tf.keras.regularizers.l2(L2_REGULARIZER_WEIGHT),
             name='transposed_conv')
 
-    def call(self, x, train_batch_norm=False):
+    def call(self, x, training=False):
         x = self.transposed_conv(x)
-        x = self.bn(x, training=train_batch_norm)
-        x = self.activation(x)
+        if self.bn:
+            x = self.bn(x, training=training)
+            x = self.activation(x)
         return x
 
 class LabelBranch(tf.keras.Model):
     def __init__(self, name, config):
         super().__init__(name=name)
 
-        self.upsample1 = Upsample('upsample1', 2, config['num_label_classes'] * 2)
-        self.upsample2 = Upsample('upsample2', 2, config['num_label_classes'] * 2)
-        self.upsample3 = Upsample('upsample2', 2, config['num_label_classes'] * 2)
-        self.final_conv = tf.keras.layers.Conv2D(config['num_label_classes'],
-            (1, 1),
-            kernel_initializer=KERNEL_INITIALIZER,
-            name='final_conv')
+        self.feature_extractor = SeparableConvBlock('feature_extractor', HEADS_NUM_BLOCKS, BIFPN_NUM_FEATURES)
+        self.upsample2 = Upsample('upsample', 4, config['num_label_classes'], False)
 
-    def call(self, x, train_batch_norm=False):
-        x, _, _, _, _ = x # We only care about feature level P3 here
-        x = self.upsample1(x, train_batch_norm=train_batch_norm)
-        x = self.upsample2(x, train_batch_norm=train_batch_norm)
-        x = self.upsample3(x, train_batch_norm=train_batch_norm)
-        x = self.final_conv(x)
+    def call(self, x, training=False):
+        x, _, _, _, _, _ = x # We only care about feature level P2
+
+        x = self.feature_extractor(x, training=training)
+        x = self.upsample2(x, training=training)
         return x

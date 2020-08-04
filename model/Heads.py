@@ -40,7 +40,7 @@ class Heads(tf.keras.Model):
         results = {}
 
         if self.label_branch:
-            labels = self.label_branch(x, train_batch_norm=train_batch_norm)
+            labels = self.label_branch(x, training=train_batch_norm)
             results['pixelwise_labels'] = labels
 
         if self.box_branch:

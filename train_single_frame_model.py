@@ -56,10 +56,11 @@ with tf.device('/cpu:0'):
     global_step = tf.Variable(0, 'global_single_step')
 
 # Define the learning rate schedule
-learning_rate_fn, max_train_steps = get_learning_rate_fn(config['single_frame'], global_step)
+learning_rate_fn, weight_decay_fn, max_train_steps = get_learning_rate_fn(config['single_frame'], global_step, 1.0e-7)
 
 # Create an optimizer, the network and the loss class
-opt = tfa.optimizers.LAMB(learning_rate_fn)
+opt = tfa.optimizers.AdamW(learning_rate=learning_rate_fn, weight_decay=weight_decay_fn)
+#opt = tf.keras.optimizers.SGD(learning_rate_fn, momentum=0.9)
 
 # Models
 backbone = EfficientNet('backbone', BACKBONE_ARGS)
@@ -67,14 +68,12 @@ fpn1 = BiFPN('bifpn1', BIFPN_NUM_FEATURES, int(BIFPN_NUM_BLOCKS / 2), True)
 fpn2 = BiFPN('bifpn2', BIFPN_NUM_FEATURES, BIFPN_NUM_BLOCKS - int(BIFPN_NUM_BLOCKS / 2), False)
 heads = Heads('heads', config)
 
-if config['train_labels']:
-    label_loss = LabelLoss('label_loss', config)
-    label_loss_val = LabelLoss('label_loss_val', config)
-if config['train_boundingboxes']:
-    box_loss = BoxLoss('box_loss', config)
-    box_loss_val = BoxLoss('box_loss_val', config)
-    embedding_loss = EmbeddingLoss('embedding_loss', config)
-    embedding_loss_val = EmbeddingLoss('embedding_loss_val', config)
+label_loss = LabelLoss('label_loss', config)
+label_loss_val = LabelLoss('label_loss_val', config)
+box_loss = BoxLoss('box_loss', config)
+box_loss_val = BoxLoss('box_loss_val', config)
+embedding_loss = EmbeddingLoss('embedding_loss', config)
+embedding_loss_val = EmbeddingLoss('embedding_loss_val', config)
 
 # Define a training step function for single images
 @tf.function
@@ -96,19 +95,15 @@ def single_train_step():
             losses += [embedding_loss([embedding, ground_truth], tf.cast(global_step, tf.int64))]
 
         ## Sum up all losses
-        summed_losses = tf.add_n(losses)
-        tf.summary.scalar('summed_losses', summed_losses, tf.cast(global_step, tf.int64))
+        total_loss = tf.add_n(losses)
+        tf.summary.scalar('summed_losses', total_loss, tf.cast(global_step, tf.int64))
 
         ## Regularization terms
-        regularizer_losses = backbone.losses + fpn1.losses + fpn2.losses + heads.losses
         vs = backbone.trainable_variables + fpn1.trainable_variables + fpn2.trainable_variables + heads.trainable_variables
         if config['train_labels']:
-            regularizer_losses += label_loss.losses
             vs += label_loss.trainable_variables
         if config['train_boundingboxes']:
-            regularizer_losses += box_loss.losses + embedding_loss.losses
             vs += box_loss.trainable_variables + embedding_loss.trainable_variables
-        total_loss = summed_losses + tf.add_n(regularizer_losses)
 
     gs = tape.gradient(total_loss, vs)
     opt.apply_gradients(zip(gs, vs))

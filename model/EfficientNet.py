@@ -58,7 +58,6 @@ class MbConvBlock(tf.keras.Model):
                                                       padding='same',
                                                       use_bias=False,
                                                       kernel_initializer=KERNEL_INITIALIZER,
-                                                      kernel_regularizer=tf.keras.regularizers.l2(L2_REGULARIZER_WEIGHT),
                                                       name='expand_conv')
             self.expand_norm = Normalization()
             self.expand_activation = tf.keras.layers.Activation('swish')
@@ -68,7 +67,6 @@ class MbConvBlock(tf.keras.Model):
                                                      padding='same',
                                                      use_bias=False,
                                                      depthwise_initializer=KERNEL_INITIALIZER,
-                                                     kernel_regularizer=tf.keras.regularizers.l2(L2_REGULARIZER_WEIGHT),
                                                      name='conv1')
         self.norm1 = Normalization()
         self.activation1 = tf.keras.layers.Activation('swish')
@@ -84,7 +82,6 @@ class MbConvBlock(tf.keras.Model):
                                                    padding='same',
                                                    use_bias=True,
                                                    kernel_initializer=KERNEL_INITIALIZER,
-                                                   kernel_regularizer=tf.keras.regularizers.l2(L2_REGULARIZER_WEIGHT),
                                                    name='se_conv1')
             self.se_conv2 = tf.keras.layers.Conv2D(num_filters,
                                                    1,
@@ -92,7 +89,6 @@ class MbConvBlock(tf.keras.Model):
                                                    padding='same',
                                                    use_bias=True,
                                                    kernel_initializer=KERNEL_INITIALIZER,
-                                                   kernel_regularizer=tf.keras.regularizers.l2(L2_REGULARIZER_WEIGHT),
                                                    name='se_conv2')
 
         self.conv2 = tf.keras.layers.Conv2D(block_args.output_filters,
@@ -100,7 +96,6 @@ class MbConvBlock(tf.keras.Model):
                                             padding='same',
                                             use_bias=False,
                                             kernel_initializer=KERNEL_INITIALIZER,
-                                            kernel_regularizer=tf.keras.regularizers.l2(L2_REGULARIZER_WEIGHT),
                                             name='conv2')
         self.norm2 = Normalization()
 
@@ -182,7 +177,7 @@ class EfficientNet(tf.keras.Model):
             drop_rate = backbone_args.drop_connect_rate * float(block_num) / num_blocks_total
             block_name = 'block{}a'.format(idx + 1)
             if not all(s == 1 for s in block_args.strides):
-                if level >= 3:
+                if level >= 2:
                     self.output_idx += [block_num - 1]
                 level += 1
             self.blocks += [ MbConvBlock(block_name, block_args, drop_rate) ]
@@ -195,7 +190,7 @@ class EfficientNet(tf.keras.Model):
                     self.blocks += [ MbConvBlock(block_name, block_args, drop_rate) ]
                     block_num += 1
         self.output_idx += [block_num - 1]
-        assert len(self.output_idx) == 3
+        assert len(self.output_idx) == 4
 
     def _round_filters(self, filters, width_coefficient, depth_divisor):
         """Round number of filters based on width multiplier."""

@@ -28,21 +28,23 @@ class EmbeddingLoss(tf.keras.Model):
         self.weight = WeightKendall('weight_embedding')
 
     def _embedding_loss(self, embeddings, ids):
+        MAX_NUM_SAMPLES = 5000.0
+        EPS = 1e-5
+
         assignment_losses = []
-        for i in range(len(ids)):
+        n = len(ids)
+        for i in range(n):
             batch_box_ids = tf.reshape(ids[i], [-1])
             batch_embeddings = tf.reshape(embeddings[i], [-1, self.box_embedding_len])
 
             mask = tf.math.greater(batch_box_ids, 0)
             num_mask = tf.reduce_sum(tf.cast(mask, tf.float32))
-            MAX_NUM_SAMPLES = 5000.0
-            EPS = 1e-5
             samples = tf.random.normal(tf.shape(mask), num_mask / MAX_NUM_SAMPLES + EPS)
             mask = tf.logical_and(mask, tf.less(samples, 1.0))
             masked_embeddings = tf.boolean_mask(batch_embeddings, mask)
             masked_box_ids = tf.boolean_mask(batch_box_ids, mask)
             batch_assignment_loss = metric_loss(masked_box_ids, masked_embeddings)
-            batch_assignment_loss = tf.reduce_mean(batch_assignment_loss)
+            batch_assignment_loss = tf.reduce_sum(batch_assignment_loss) / MAX_NUM_SAMPLES
             assignment_losses += [batch_assignment_loss]
         assignment_loss = tf.stack(assignment_losses)
         return tf.reduce_mean(assignment_loss)
@@ -55,7 +57,7 @@ class EmbeddingLoss(tf.keras.Model):
         embedding_loss = self._embedding_loss(embeddings, ids)
 
         # Apply some sensible scaling before loss weighting
-        embedding_loss *= 10.0
+        embedding_loss *= 10000.0
 
         embedding_loss = self.weight(embedding_loss, step)
 

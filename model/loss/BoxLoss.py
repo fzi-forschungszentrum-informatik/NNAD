@@ -70,7 +70,7 @@ class BoxLoss(tf.keras.Model):
         cls_loss = sparse_focal_loss(logits=masked_targets_cls, labels=masked_gt_targets_cls)
         #cls_loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=masked_targets_cls,
         #                                                          labels=masked_gt_targets_cls)
-        bb_loss = smooth_l1_loss(logits=masked_targets_bb, labels=masked_gt_targets_bb)
+        bb_loss = smooth_l1_loss(logits=masked_targets_bb, labels=masked_gt_targets_bb, delta=0.1)
         obj_loss = tf.where(tf.reduce_any(mask_obj), tf.reduce_mean(obj_loss), 0.0)
         cls_loss = tf.where(tf.reduce_any(mask_bb), tf.reduce_mean(cls_loss), 0.0)
         bb_loss = tf.where(tf.reduce_any(mask_bb), tf.reduce_mean(bb_loss), 0.0)
@@ -88,6 +88,7 @@ class BoxLoss(tf.keras.Model):
         tf.summary.scalar('bb_obj_loss', obj_loss, step)
         tf.summary.scalar('bb_box_loss', bb_loss, step)
 
+        # Probably we should not use reduce_mean but reduce_sum / num_boxes / batch_size. FIXIT!
         losses = [cls_loss, obj_loss, bb_loss]
 
         if self.box_delta_regression:
@@ -102,7 +103,7 @@ class BoxLoss(tf.keras.Model):
             mask_delta = tf.equal(gt_targets_delta_valid, tf.constant(1))
             masked_targets_delta = tf.boolean_mask(targets_delta, mask_delta)
             masked_gt_targets_delta = tf.boolean_mask(gt_targets_delta, mask_delta)
-            delta_loss = smooth_l1_loss(logits=masked_targets_delta, labels=masked_gt_targets_delta)
+            delta_loss = smooth_l1_loss(logits=masked_targets_delta, labels=masked_gt_targets_delta, delta=0.1)
             delta_loss = tf.where(tf.reduce_any(mask_delta), tf.reduce_mean(delta_loss), 0.0)
 
             # Apply some sensible scaling before loss weighting

@@ -35,7 +35,7 @@ def get_config():
         config = yaml.safe_load(stream)
     return config, config_path
 
-def get_learning_rate_fn(config, global_step):
+def get_learning_rate_fn(config, global_step, initial_weight_decay):
     lr_steps = config['lr_steps']
     lr_values = config['lr_values']
     last_step = 0
@@ -54,5 +54,10 @@ def get_learning_rate_fn(config, global_step):
                 lr = lr_values[i]
         return lr
 
-    return learning_rate_fn, lr_steps[-1]
+    @tf.function
+    def weight_decay_fn():
+        wd = tf.constant(initial_weight_decay)
+        return initial_weight_decay / lr_values[0] * learning_rate_fn()
+
+    return learning_rate_fn, weight_decay_fn, lr_steps[-1]
 

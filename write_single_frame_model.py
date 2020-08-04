@@ -55,10 +55,10 @@ class Infer(tf.Module):
 
     @tf.function(input_signature=[[
             tf.TensorSpec([1,
-                           int(config['eval_image_height'] / 2**(i+3)),
-                           int(config['eval_image_width'] / 2**(i+3)),
+                           int(config['eval_image_height'] / 2**(i+2)),
+                           int(config['eval_image_width'] / 2**(i+2)),
                            BIFPN_NUM_FEATURES],
-            tf.float32, 'current_features_{}'.format(i)) for i in range(5)]])
+            tf.float32, 'current_features_{}'.format(i)) for i in range(6)]])
     def inferHeads(self, current_feature_map):
         return_vals = {}
 

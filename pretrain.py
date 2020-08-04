@@ -50,10 +50,10 @@ ds = Dataset(settings_path=config_path, mode='pretrain')
 with tf.device('/cpu:0'):
     global_step = tf.Variable(0, 'global_pretrain_step')
 
-learning_rate_fn, max_train_steps = get_learning_rate_fn(config['pretrain'], global_step)
+learning_rate_fn, weight_decay_fn, max_train_steps = get_learning_rate_fn(config['pretrain'], global_step, 1.0e-7)
 
 # Create an optimizer, the network and the loss class
-opt = tfa.optimizers.LAMB(learning_rate_fn)
+opt = tfa.optimizers.AdamW(learning_rate=learning_rate_fn, weight_decay=weight_decay_fn)
 
 # Models
 backbone = EfficientNet('backbone', BACKBONE_ARGS)
@@ -68,8 +68,6 @@ def train_step():
         feature_map = backbone(images['left'], True)
         result = pretrain_head(feature_map, True)
         loss = pretrain_loss([result, ground_truth], tf.cast(global_step, tf.int64))
-
-        loss = loss + tf.add_n(backbone.losses + pretrain_head.losses + pretrain_loss.losses)
 
     vs = backbone.trainable_variables + pretrain_head.trainable_variables + pretrain_loss.trainable_variables
     gs = tape.gradient(loss, vs)

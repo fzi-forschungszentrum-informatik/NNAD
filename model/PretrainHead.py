@@ -28,7 +28,6 @@ class PretrainHead(tf.keras.Model):
                                                padding='same',
                                                use_bias=False,
                                                kernel_initializer=KERNEL_INITIALIZER,
-                                               kernel_regularizer=tf.keras.regularizers.l2(L2_REGULARIZER_WEIGHT),
                                                name='pre_conv')
         self.norm = Normalization()
         self.activation = tf.keras.layers.Activation('swish')
@@ -38,7 +37,7 @@ class PretrainHead(tf.keras.Model):
             name='final_conv')
 
     def call(self, inputs, training=False):
-        p3, p4, p5 = inputs
+        p2, p3, p4, p5 = inputs
         x = p5
         x = self.pre_conv(x)
         x = self.norm(x, training=training)

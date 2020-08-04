@@ -99,8 +99,8 @@ std::shared_ptr<DatasetEntry> SintelDataset::get(std::size_t i)
 
 std::vector<cv::Mat> SintelDataset::flowPyramid(cv::Mat flow) const
 {
-    float initialScale = 8.0;
-    int numLevels = 5;
+    float initialScale = 4.0;
+    int numLevels = 6;
 
     std::vector<cv::Mat> result;
 

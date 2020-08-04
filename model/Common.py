@@ -31,7 +31,6 @@ class Downsample(tf.keras.Model):
                                            strides=(2, 2),
                                            use_bias=False,
                                            kernel_initializer=KERNEL_INITIALIZER,
-                                           kernel_regularizer=tf.keras.regularizers.l2(L2_REGULARIZER_WEIGHT),
                                            name='downsample')
 
     def call(self, x, training=False):
@@ -47,7 +46,6 @@ class Resize(tf.keras.Model):
                                                                  padding='same',
                                                                  use_bias=False,
                                                                  kernel_initializer=KERNEL_INITIALIZER,
-                                                                 kernel_regularizer=tf.keras.regularizers.l2(L2_REGULARIZER_WEIGHT),
                                                                  name='antialiasing_conv')
         self.norm = Normalization()
 
@@ -67,7 +65,6 @@ class SeparableConv(tf.keras.Model):
                                                     padding='same',
                                                     use_bias=False,
                                                     kernel_initializer=KERNEL_INITIALIZER,
-                                                    kernel_regularizer=tf.keras.regularizers.l2(L2_REGULARIZER_WEIGHT),
                                                     name='conv')
         self.norm = Normalization()
         self.activation = tf.keras.layers.Activation('swish')

@@ -20,10 +20,8 @@ import tensorflow as tf
 import collections
 from thirdparty.online_norm import *
 
-L2_REGULARIZER_WEIGHT=1e-4
-
 def Normalization():
-    return OnlineNorm(alpha_fwd=0.999, alpha_bkw=0.99)
+    return tf.keras.layers.BatchNormalization(momentum=0.9, epsilon=0.01)
 
 KERNEL_INITIALIZER = tf.keras.initializers.VarianceScaling(2.0, mode='fan_out', distribution='normal')
 

@@ -36,6 +36,7 @@ class BBUtilsWrapper
 public:
     BBUtilsWrapper(int width, int height)
     {
+        m_bbutils.emplace_back(std::make_unique<BBUtils>(width, height, 4));
         m_bbutils.emplace_back(std::make_unique<BBUtils>(width, height, 8));
         m_bbutils.emplace_back(std::make_unique<BBUtils>(width, height, 16));
         m_bbutils.emplace_back(std::make_unique<BBUtils>(width, height, 32));

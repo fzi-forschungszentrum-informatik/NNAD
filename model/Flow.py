@@ -47,7 +47,6 @@ class FlowEstimator(tf.keras.Model):
             (3, 3),
             padding='same',
             kernel_initializer=KERNEL_INITIALIZER,
-            kernel_regularizer=tf.keras.regularizers.l2(L2_REGULARIZER_WEIGHT),
             name='conv')
 
     def call(self, x, train_batch_norm=False):
@@ -75,11 +74,13 @@ class Flow(tf.keras.Model):
         self.fe2 = FlowEstimator('fe2', num_features)
         self.fe3 = FlowEstimator('fe3', num_features)
         self.fe4 = FlowEstimator('fe4', num_features)
+        self.fe5 = FlowEstimator('fe5', num_features)
 
         self.flow_upsample1 = FlowUpsample('flow_upsample1')
         self.flow_upsample2 = FlowUpsample('flow_upsample2')
         self.flow_upsample3 = FlowUpsample('flow_upsample3')
         self.flow_upsample4 = FlowUpsample('flow_upsample4')
+        self.flow_upsample5 = FlowUpsample('flow_upsample5')
 
         self.correlate = tfa.layers.optical_flow.CorrelationCost(1, 4, 1, 1, 4, 'channels_last')
 
@@ -130,10 +131,11 @@ class Flow(tf.keras.Model):
         results['flow_2'] = flow_2
         results['flow_3'] = flow_3
         results['flow_4'] = flow_4
+        results['flow_5'] = flow_5
         results['flow_1_up'] = flow_1_up
         results['flow_2_up'] = flow_2_up
         results['flow_3_up'] = flow_3_up
-        results['flow_4_up'] = flow_4_up
+        results['flow_5_up'] = flow_5_up
 
         return results
 
@@ -141,19 +143,18 @@ class FlowWarp(tf.keras.Model):
     def __init__(self, name, num_features):
         super().__init__(name=name)
         self.channel_reduce = []
-        for i in range(5):
+        for i in range(6):
             self.channel_reduce += [
                 tf.keras.layers.SeparableConv2D(num_features,
                     (1, 1),
                     kernel_initializer=KERNEL_INITIALIZER,
-                    kernel_regularizer=tf.keras.regularizers.l1(L2_REGULARIZER_WEIGHT),
                     name='conv_reduce_{}'.format(i)) ]
 
     def call(self, inputs, train_batch_norm=False):
         x_current, x_prev, bw_flow_dict = inputs
 
         # This corresponds to the feature levels P3 to P7
-        bw_flows = bw_flow_dict['flow_0'], bw_flow_dict['flow_1'], bw_flow_dict['flow_2'], bw_flow_dict['flow_3'], bw_flow_dict['flow_4']
+        bw_flows = bw_flow_dict['flow_0'], bw_flow_dict['flow_1'], bw_flow_dict['flow_2'], bw_flow_dict['flow_3'], bw_flow_dict['flow_4'], bw_flow_dict['flow_5']
 
         outputs = []
         for i in range(len(self.channel_reduce)):
