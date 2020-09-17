@@ -255,7 +255,7 @@ void BBUtils::performNMS(std::vector<BoundingBoxDetection> &detectionList, doubl
                         featureDist += std::pow(detectionList[idxs[innerIdx].idx].embedding[j]
                                                 - detectionList[idxs[outerIdx].idx].embedding[j], 2.0);
                     }
-                    isSame = featureDist <= 1.0;
+                    isSame = featureDist <= 1.2;
                 }
 
                 if (isSame) {

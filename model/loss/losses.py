@@ -61,33 +61,28 @@ def get_pairwise_distances(features):
 
     return pairwise_distances
 
-# This is Margin Loss and not Contrastive Loss as used in the ICPRAM 2020 paper.
-# But that paper did not use the embedding anyways.
+# This is our Weighted Margin Loss
 def metric_loss(labels, embeddings, alpha = 0.2, beta=1.2):
-    with tf.device('/cpu:0'):
-        distances = get_pairwise_distances(embeddings)
+    distances = get_pairwise_distances(embeddings)
 
-        labels = tf.reshape(labels, [-1, 1])
-        labels = tf.tile(labels, [1, tf.shape(labels)[0]])
-        adjacency = tf.math.equal(labels, tf.transpose(labels))
-        adjacency_not = tf.math.logical_not(adjacency)
-        mask_positives = tf.cast(adjacency, dtype=tf.dtypes.float32)
-        mask_negatives = tf.cast(adjacency_not, dtype=tf.dtypes.float32)
+    labels = tf.reshape(labels, [-1, 1])
+    labels = tf.tile(labels, [1, tf.shape(labels)[0]])
+    adjacency = tf.math.equal(labels, tf.transpose(labels))
+    adjacency_not = tf.math.logical_not(adjacency)
+    mask_positives = tf.cast(adjacency, dtype=tf.dtypes.float32)
+    mask_negatives = tf.cast(adjacency_not, dtype=tf.dtypes.float32)
 
-        num_entries = 100.0 # HACK #tf.reduce_sum(mask_positives) + tf.reduce_sum(mask_negatives)
+    pos_dist = distances - (beta - alpha)
+    pos_dist = tf.math.maximum(pos_dist, 0.0)
+    loss_positives = pos_dist * mask_positives
+    loss_positives = tf.reduce_sum(loss_positives)
 
-        pos_dist = distances - (beta - alpha)
-        pos_dist = tf.math.maximum(pos_dist, 0.0)
-        loss_positives = pos_dist * mask_positives
-        loss_positives = tf.where(tf.math.greater(num_entries, 0.0),
-                                  tf.reduce_sum(loss_positives) / num_entries,
-                                  0.0)
+    neg_dist = (beta + alpha) - distances
+    L = 0.2
+    N = tf.cast(tf.shape(embeddings)[-1], tf.float32)
+    neg_dist = neg_dist * L / (L + tf.math.exp(-N * tf.math.pow(distances - tf.math.sqrt(2.0), 2.0)))
+    neg_dist = tf.math.maximum(neg_dist, 0.0)
+    loss_negatives = neg_dist * mask_negatives
+    loss_negatives = tf.reduce_sum(loss_negatives)
 
-        neg_dist = (beta + alpha) - distances
-        neg_dist = tf.math.maximum(neg_dist, 0.0)
-        loss_negatives = neg_dist * mask_negatives
-        loss_negatives = tf.where(tf.math.greater(num_entries, 0.0),
-                                  tf.reduce_sum(loss_negatives) / num_entries,
-                                  0.0)
-
-        return loss_positives + loss_negatives
+    return loss_positives + loss_negatives

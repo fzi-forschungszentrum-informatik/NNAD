@@ -51,6 +51,9 @@ class BoxLoss(tf.keras.Model):
         gt_targets_cls = tf.reshape(gt_targets_cls, [-1])
         gt_targets_obj = tf.reshape(gt_targets_obj, [-1])
 
+        shape = tf.shape(targets_bb)
+        num_anchors = tf.cast(shape[0], tf.float32)
+
         # -1 is the ignore label for boxes
         mask_obj = tf.not_equal(gt_targets_obj, tf.constant([-1]))
         masked_targets_obj = tf.boolean_mask(targets_obj, mask_obj)
@@ -71,14 +74,14 @@ class BoxLoss(tf.keras.Model):
         #cls_loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=masked_targets_cls,
         #                                                          labels=masked_gt_targets_cls)
         bb_loss = smooth_l1_loss(logits=masked_targets_bb, labels=masked_gt_targets_bb, delta=0.1)
-        obj_loss = tf.where(tf.reduce_any(mask_obj), tf.reduce_mean(obj_loss), 0.0)
-        cls_loss = tf.where(tf.reduce_any(mask_bb), tf.reduce_mean(cls_loss), 0.0)
-        bb_loss = tf.where(tf.reduce_any(mask_bb), tf.reduce_mean(bb_loss), 0.0)
+        obj_loss = tf.reduce_sum(obj_loss) / num_anchors
+        cls_loss = tf.reduce_sum(cls_loss) / num_anchors
+        bb_loss = tf.reduce_sum(bb_loss) / num_anchors
 
         # Apply some sensible scaling before loss weighting
-        obj_loss *= 0.001
-        cls_loss *= 0.01
-        bb_loss *= 20.0
+        obj_loss *= 5000.0
+        cls_loss *= 10000.0
+        bb_loss *= 20000.0
 
         obj_loss = self.weight_objectness(obj_loss, step)
         cls_loss = self.weight_class(cls_loss, step)
@@ -88,7 +91,6 @@ class BoxLoss(tf.keras.Model):
         tf.summary.scalar('bb_obj_loss', obj_loss, step)
         tf.summary.scalar('bb_box_loss', bb_loss, step)
 
-        # Probably we should not use reduce_mean but reduce_sum / num_boxes / batch_size. FIXIT!
         losses = [cls_loss, obj_loss, bb_loss]
 
         if self.box_delta_regression:
@@ -104,10 +106,10 @@ class BoxLoss(tf.keras.Model):
             masked_targets_delta = tf.boolean_mask(targets_delta, mask_delta)
             masked_gt_targets_delta = tf.boolean_mask(gt_targets_delta, mask_delta)
             delta_loss = smooth_l1_loss(logits=masked_targets_delta, labels=masked_gt_targets_delta, delta=0.1)
-            delta_loss = tf.where(tf.reduce_any(mask_delta), tf.reduce_mean(delta_loss), 0.0)
+            delta_loss = tf.reduce_sum(delta_loss) / num_anchors
 
             # Apply some sensible scaling before loss weighting
-            delta_loss *= 20.0
+            delta_loss *= 10000.0
 
             delta_loss = self.weight_delta(delta_loss, step)
             tf.summary.scalar('bb_delta_loss', delta_loss, step)

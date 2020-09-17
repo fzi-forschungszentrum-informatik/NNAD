@@ -60,7 +60,6 @@ learning_rate_fn, weight_decay_fn, max_train_steps = get_learning_rate_fn(config
 
 # Create an optimizer, the network and the loss class
 opt = tfa.optimizers.AdamW(learning_rate=learning_rate_fn, weight_decay=weight_decay_fn)
-#opt = tf.keras.optimizers.SGD(learning_rate_fn, momentum=0.9)
 
 # Models
 backbone = EfficientNet('backbone', BACKBONE_ARGS)

@@ -57,7 +57,7 @@ class EmbeddingLoss(tf.keras.Model):
         embedding_loss = self._embedding_loss(embeddings, ids)
 
         # Apply some sensible scaling before loss weighting
-        embedding_loss *= 10000.0
+        embedding_loss *= 100.0
 
         embedding_loss = self.weight(embedding_loss, step)
 
