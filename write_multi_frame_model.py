@@ -43,8 +43,8 @@ class Infer(tf.Module):
         self.backbone = EfficientNet('backbone', BACKBONE_ARGS)
         self.fpn1 = BiFPN('bifpn1', BIFPN_NUM_FEATURES, int(BIFPN_NUM_BLOCKS / 2), True)
         self.fpn2 = BiFPN('bifpn2', BIFPN_NUM_FEATURES, BIFPN_NUM_BLOCKS - int(BIFPN_NUM_BLOCKS / 2), False)
-        self.flow = Flow('flow', BIFPN_NUM_FEATURES)
-        self.flow_warp = FlowWarp('flow_warp', BIFPN_NUM_FEATURES)
+        self.flow = Flow('flow')
+        self.flow_warp = FlowWarp('flow_warp')
         self.heads = Heads('heads', config, box_delta_regression=True)
 
     @tf.function(input_signature=[

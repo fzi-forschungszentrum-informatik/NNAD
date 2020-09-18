@@ -64,8 +64,8 @@ opt = tfa.optimizers.LAMB(learning_rate_fn)
 backbone = EfficientNet('backbone', BACKBONE_ARGS)
 fpn1 = BiFPN('bifpn1', BIFPN_NUM_FEATURES, int(BIFPN_NUM_BLOCKS / 2), True)
 fpn2 = BiFPN('bifpn2', BIFPN_NUM_FEATURES, BIFPN_NUM_BLOCKS - int(BIFPN_NUM_BLOCKS / 2), False)
-flow = Flow('flow', BIFPN_NUM_FEATURES)
-flow_warp = FlowWarp('flow_warp', BIFPN_NUM_FEATURES)
+flow = Flow('flow')
+flow_warp = FlowWarp('flow_warp')
 heads = Heads('heads', config, box_delta_regression=True)
 
 if config['train_labels']:

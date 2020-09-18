@@ -61,7 +61,7 @@ opt = tfa.optimizers.LAMB(learning_rate_fn)
 # Models
 backbone = EfficientNet('backbone', BACKBONE_ARGS)
 fpn1 = BiFPN('bifpn1', BIFPN_NUM_FEATURES, int(BIFPN_NUM_BLOCKS / 2), True)
-flow = Flow('flow', BIFPN_NUM_FEATURES)
+flow = Flow('flow')
 
 flow_loss = FlowLoss('flow_loss')
 
