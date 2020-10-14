@@ -50,7 +50,8 @@ class EmbeddingLoss(tf.keras.Model):
         return tf.reduce_mean(assignment_loss)
 
     def call(self, inputs, step):
-        embeddings, ground_truth = inputs
+        results, ground_truth = inputs
+        embeddings = results['bb_targets_embedding']
         embeddings = tf.unstack(embeddings, axis=0)
         ids = tf.unstack(ground_truth['bb_targets_id'], axis=0)
 

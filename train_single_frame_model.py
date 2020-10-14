@@ -90,8 +90,7 @@ def single_train_step():
             losses += [label_loss([results, ground_truth], tf.cast(global_step, tf.int64))]
         if config['train_boundingboxes']:
             losses += box_loss([results, ground_truth], tf.cast(global_step, tf.int64))
-            _, _, _, embedding = heads.box_branch(feature_map, True)
-            losses += [embedding_loss([embedding, ground_truth], tf.cast(global_step, tf.int64))]
+            losses += [embedding_loss([results, ground_truth], tf.cast(global_step, tf.int64))]
 
         ## Sum up all losses
         total_loss = tf.add_n(losses)
@@ -122,8 +121,7 @@ def single_val_step():
         losses += [label_loss_val([results, ground_truth], tf.cast(global_step, tf.int64))]
     if config['train_boundingboxes']:
         losses += box_loss_val([results, ground_truth], tf.cast(global_step, tf.int64))
-        _, _, _, embedding = heads.box_branch(feature_map, True)
-        losses += [embedding_loss_val([embedding, ground_truth], tf.cast(global_step, tf.int64))]
+        losses += [embedding_loss_val([results, ground_truth], tf.cast(global_step, tf.int64))]
     summed_losses = tf.add_n(losses)
     tf.summary.scalar('summed_val_losses', summed_losses, tf.cast(global_step, tf.int64))
 
