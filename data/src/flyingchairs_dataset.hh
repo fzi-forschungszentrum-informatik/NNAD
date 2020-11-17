@@ -36,8 +36,5 @@ private:
     std::vector<cv::Mat> flowPyramid(cv::Mat flow) const;
 
     bfs::path m_path;
-    std::string m_flowSubstring{"_flow.flo"};
-    std::string m_currentImgSubstring{"_img2.ppm"};
-    std::string m_prevImgSubstring{"_img1.ppm"};
 };
 

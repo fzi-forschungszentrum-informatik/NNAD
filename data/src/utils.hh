@@ -23,6 +23,8 @@
 
 void CHECK(const bool ok, const std::string errorMessage);
 
+bool stringEndsWith(const std::string &str, const std::string &end);
+
 template <typename T>
 class VectorView {
 public:

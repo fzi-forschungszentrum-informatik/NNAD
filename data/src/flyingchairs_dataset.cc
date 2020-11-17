@@ -30,8 +30,12 @@ FlyingchairsDataset::FlyingchairsDataset(bfs::path basePath) : m_path(basePath)
         if (entry.path().extension() == ".flo") {
             auto relativePath = bfs::relative(entry.path(), m_path);
             std::string key = relativePath.string();
-            key = key.substr(0, key.length() - m_flowSubstring.length());
-            m_keys.push_back(key);
+            auto ending = std::string("-flow_01.flo");
+            if (stringEndsWith(key, ending)) {
+                key = key.substr(0, key.length() - ending.length());
+                m_keys.push_back(key + std::string("-01"));
+                m_keys.push_back(key + std::string("-10"));
+            }
         }
     }
     std::sort(m_keys.begin(), m_keys.end());
@@ -43,19 +47,37 @@ std::shared_ptr<DatasetEntry> FlyingchairsDataset::get(std::size_t i)
     auto key = m_keys[i];
     auto result = std::make_shared<DatasetEntry>();
 
-    auto currentImgPath = m_path / bfs::path(key + m_currentImgSubstring);
-    cv::Mat currentImg = cv::imread(currentImgPath.string());
-    CHECK(currentImg.data, "Failed to read image " + currentImgPath.string());
-    result->input.left = toFloatMat(currentImg);
+    bool forward = stringEndsWith(key, std::string("-01"));
+    key = key.substr(0, key.length() - 3);
 
-    auto prevImgPath = m_path / bfs::path(key + m_prevImgSubstring);
-    cv::Mat prevImg = cv::imread(prevImgPath.string());
-    CHECK(prevImg.data, "Failed to read image " + prevImgPath.string());
-    result->input.prevLeft = toFloatMat(prevImg);
+    auto img0Path = m_path / bfs::path(key + std::string("-img_0.png"));
+    cv::Mat img0 = cv::imread(img0Path.string());
+    CHECK(img0.data, "Failed to read image " + img0Path.string());
+    auto img1Path = m_path / bfs::path(key + std::string("-img_1.png"));
+    cv::Mat img1 = cv::imread(img1Path.string());
+    CHECK(img1.data, "Failed to read image " + img1Path.string());
 
-    auto flowPath = m_path / bfs::path(key + m_flowSubstring);
+    std::string substr;
+    if (forward) {
+        substr = "01";
+        result->input.left = toFloatMat(img1);
+        result->input.prevLeft = toFloatMat(img0);
+    } else {
+        substr = "10";
+        result->input.left = toFloatMat(img0);
+        result->input.prevLeft = toFloatMat(img1);
+    }
+
+    auto flowPath = m_path / bfs::path(key + std::string("-flow_") + substr + std::string(".flo"));
     cv::Mat flowImg = readFlowImg(flowPath.string());
     result->gt.flowPyramid = flowPyramid(flowImg);
+
+    auto maskPath = m_path / bfs::path(key + std::string("-occ_") + substr + std::string(".png"));
+    cv::Mat maskImg = cv::imread(maskPath.string(), cv::IMREAD_ANYDEPTH | cv::IMREAD_GRAYSCALE);
+    maskImg.convertTo(maskImg, CV_32S);
+    maskImg /= -255;
+    maskImg += 1;
+    //result->gt.flowPyramid = flowPyramid(flowImg); TODO
 
     result->metadata.originalWidth = result->input.left.cols;
     result->metadata.originalHeight = result->input.left.rows;

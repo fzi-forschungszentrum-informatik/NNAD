@@ -319,7 +319,7 @@ public:
 
         outputMat<float, 3>(context, data->input.left, "left_img");
         outputMat<float, 3>(context, data->input.prevLeft, "prev_left_img");
-        if (data->gt.flowPyramid.size() != 5) {
+        if (data->gt.flowPyramid.size() != 6) {
             outputEmpty(context, "flow_0");
             outputEmpty(context, "flow_1");
             outputEmpty(context, "flow_2");

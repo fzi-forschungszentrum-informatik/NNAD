@@ -28,3 +28,16 @@ void CHECK(const bool ok, const std::string errorMessage)
         std::abort();
     }
 }
+
+bool stringEndsWith(const std::string &str, const std::string &end)
+{
+    if (str.size() < end.size()) {
+        return false;
+    }
+
+    if (str.compare(str.size() - end.size(), end.size(), end) == 0) {
+        return true;
+    }
+    return false;
+}
+
