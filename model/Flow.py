@@ -68,27 +68,35 @@ class FlowModule(tf.keras.Model):
             padding='same',
             kernel_initializer=KERNEL_INITIALIZER,
             name='final_flow')
+        self.conv_final_mask = tf.keras.layers.SeparableConv2D(1,
+            (3, 3),
+            padding='same',
+            kernel_initializer=KERNEL_INITIALIZER,
+            name='final_flow')
 
     # Calculates _forward_ flow. For backward flow exchange inputs.
     def call(self, inputs, training=False):
         to_concat = []
-        if self.is_lowest_level:
-            small_features, small_flow, prev, current = inputs
+        if not self.is_lowest_level:
+            small_features, small_flow, small_mask, prev, current = inputs
             upsampled_features = self.upsample_features(small_features)
             upsampled_flow = self.upsample_flow(small_flow)
+            _, h, w, _ = upsampled_flow.get_shape().as_list()
+            upsampled_mask = tf.image.resize(upsampled_mask, [h, w])
             to_concat += [upsampled_features, upsampled_flow]
-            current = _warp(current, upsampled_flow)
+            current = _warp(current, upsampled_flow) * tf.nn.sigmoid(upsampled_mask)
         else:
             prev, current = inputs
             upsampled_features = None
             upsampled_flow = None
-        corr = self.correlate([prev_3, warped_current_3])
+        corr = self.correlate([prev, current])
         to_concat += [corr, prev]
 
         out_features = self.conv_block(tf.concat(to_concat, axis=-1), training=training)
         out_flow = self.conv_final_flow(out_features)
+        out_mask = self.conv_final_mask(out_features)
 
-        return out_features, out_flow, upsampled_flow
+        return out_features, out_flow, out_mask, upsampled_flow
 
 '''
 This class estimates the flow between the current and previous images.
@@ -112,12 +120,12 @@ class Flow(tf.keras.Model):
         current_0, current_1, current_2, current_3, current_4, current_5 = current
         prev_0, prev_1, prev_2, prev_3, prev_4, prev_5 = prev
 
-        features_5, flow_5, _, _ = fe5([prev5, current_5], training=training)
-        features_4, flow_4, flow_5_up = fe4([features_5, flow_5, prev4, current_4], training=training)
-        features_3, flow_3, flow_4_up = fe3([features_4, flow_4, prev3, current_3], training=training)
-        features_2, flow_2, flow_3_up = fe2([features_3, flow_3, prev2, current_2], training=training)
-        features_1, flow_1, flow_2_up = fe1([features_2, flow_2, prev1, current_1], training=training)
-        features_0, flow_0, flow_1_up = fe0([features_1, flow_1, prev0, current_0], training=training)
+        features_5, flow_5, mask_5, _, _ = fe5([prev5, current_5], training=training)
+        features_4, flow_4, mask_4, flow_5_up = fe4([features_5, flow_5, mask_5, prev4, current_4], training=training)
+        features_3, flow_3, mask_3, flow_4_up = fe3([features_4, flow_4, mask_4, prev3, current_3], training=training)
+        features_2, flow_2, mask_2, flow_3_up = fe2([features_3, flow_3, mask_3, prev2, current_2], training=training)
+        features_1, flow_1, mask_1, flow_2_up = fe1([features_2, flow_2, mask_2, prev1, current_1], training=training)
+        features_0, flow_0, mask_0, flow_1_up = fe0([features_1, flow_1, mask_1, prev0, current_0], training=training)
 
         results = {}
         results['flow_0'] = flow_0
@@ -126,6 +134,12 @@ class Flow(tf.keras.Model):
         results['flow_3'] = flow_3
         results['flow_4'] = flow_4
         results['flow_5'] = flow_5
+        results['mask_0'] = mask_0
+        results['mask_1'] = mask_1
+        results['mask_2'] = mask_2
+        results['mask_3'] = mask_3
+        results['mask_4'] = mask_4
+        results['mask_5'] = mask_5
         results['flow_1_up'] = flow_1_up
         results['flow_2_up'] = flow_2_up
         results['flow_3_up'] = flow_3_up
@@ -149,11 +163,15 @@ class FlowWarp(tf.keras.Model):
 
         # This corresponds to the feature levels P3 to P7
         bw_flows = bw_flow_dict['flow_0'], bw_flow_dict['flow_1'], bw_flow_dict['flow_2'], bw_flow_dict['flow_3'], bw_flow_dict['flow_4'], bw_flow_dict['flow_5']
-
+        bw_masks = bw_flow_dict['mask_0'], bw_flow_dict['mask_1'], bw_flow_dict['mask_2'], bw_flow_dict['mask_3'], bw_flow_dict['mask_4'], bw_flow_dict['mask_5']
         outputs = []
         for i in range(len(self.channel_reduce)):
-            x_prev_warped = _warp(x_prev[i], bw_flows[i])
-            x = tf.concat([x_current[i], x_prev_warped, bw_flows[i]], axis=-1)
+            mask = tf.nn.sigmoid(bw_masks[i])
+            flow = bw_flows[i]
+            mask = tf.stop_gradient(mask)
+            flow = tf.stop_gradient(flow)
+            x_prev_warped = _warp(x_prev[i], flow) * mask
+            x = tf.concat([x_current[i], x_prev_warped, flow, mask], axis=-1)
             x = self.channel_reduce[i](x)
             outputs += [x]
         return outputs
