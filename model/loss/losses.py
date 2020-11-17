@@ -86,3 +86,62 @@ def metric_loss(labels, embeddings, alpha = 0.2, beta=1.2):
     loss_negatives = tf.reduce_sum(loss_negatives)
 
     return loss_positives + loss_negatives
+
+## MonoDepth2 losses
+
+def ssim(x, y):
+    # constants
+    C1 = 0.01 ** 2
+    C2 = 0.03 ** 2
+
+    # padding of images
+    x = tf.pad(x, [[0, 0], [1, 1], [1, 1], [0, 0]] 'reflect')
+    y = tf.pad(y, [[0, 0], [1, 1], [1, 1], [0, 0]] 'reflect')
+
+    # local mean and variance
+    mu_x = tf.nn.avg_pool2d(x, 3, 1, 'valid')
+    mu_y = tf.nn.avg_pool2d(y, 3, 1, 'valid')
+
+    avg_xx = tf.nn.avg_pool2d(x * x, 3, 1, 'valid')
+    avg_xy = tf.nn.avg_pool2d(x * y, 3, 1, 'valid')
+    avg_yy = tf.nn.avg_pool2d(y * y, 3, 1, 'valid')
+
+    sigma_x  = avg_xx - mu_x * mu_x
+    sigma_y  = avg_yy - mu_y * mu_y
+    sigma_xy = avg_xy - mu_x * mu_y
+
+    # loss
+    SSIM_n = (2 * mu_x * mu_y + C1) * (2 * sigma_xy + C2)
+    SSIM_d = (mu_x * mu_x + mu_y * mu_y + C1) * (sigma_x + sigma_y + C2)
+
+    return tf.clip_by_value((1.0 - SSIM_n / SSIM_d) / 2.0, 0.0, 1.0)
+
+def photometric_loss(x, y):
+    return 0.85 * ssim(x, y) + 0.15 * tf.math.abs(x - y)
+
+def smoothness_loss(img, disp):
+    EPS = 1e-7
+
+    # normalize disparity
+    mean_disp = tf.math.reduce_mean(disp, [1, 2])
+    norm_disp = disp / (mean_disp + EPS)
+
+    # calculate gradients of disparity and image
+    grad_disp_x = tf.math.abs(norm_disp[:, :, :-1, :] - norm_disp[:, :, 1:, :])
+    grad_disp_y = tf.math.abs(norm_disp[:, :-1, :, :] - norm_disp[:, 1:, :, :])
+
+    grad_img_x = tf.math.abs(img[:, :, :-1, :] - img[:, :, 1:, :])
+    grad_img_y = tf.math.abs(img[:, :-1, :, :] - img[:, 1:, :, :])
+
+    # Weight disparity gradients
+    grad_disp_x *= tf.math.exp(-tf.math.reduce_mean(grad_img_x, -1))
+    grad_disp_y *= tf.math.exp(-tf.math.reduce_mean(grad_img_y, -1))
+
+    loss = grad_disp_x + grad_disp_y
+    loss *= 1e-3
+    return grad_disp_x + grad_disp_y
+
+# The "mask" input must be the logits (before sigmoid)!
+def mask_regularization_loss(mask):
+    return 0.2 * itf.nn.sigmoid_cross_entropy_with_logits(tf.ones_like(mask), mask)
+
