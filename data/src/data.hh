@@ -164,7 +164,8 @@ struct DatasetEntry {
     } input;
 
     struct {
-        std::vector<cv::Mat> flowPyramid;
+        cv::Mat flow;
+        cv::Mat flowMask;
         cv::Mat pixelwiseLabels;
         cv::Mat bbDontCareAreas;
         BoundingBoxList bbList;

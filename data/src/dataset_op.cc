@@ -295,12 +295,8 @@ public:
         if (!data) {
             outputEmpty(context, "left_img");
             outputEmpty(context, "prev_left_img");
-            outputEmpty(context, "flow_0");
-            outputEmpty(context, "flow_1");
-            outputEmpty(context, "flow_2");
-            outputEmpty(context, "flow_3");
-            outputEmpty(context, "flow_4");
-            outputEmpty(context, "flow_5");
+            outputEmpty(context, "flow");
+            outputEmpty(context, "flow_mask");
             outputEmpty(context, "cls");
             outputEmpty(context, "pixelwise_labels");
             outputEmpty(context, "bb_targets_objectness");
@@ -319,21 +315,8 @@ public:
 
         outputMat<float, 3>(context, data->input.left, "left_img");
         outputMat<float, 3>(context, data->input.prevLeft, "prev_left_img");
-        if (data->gt.flowPyramid.size() != 6) {
-            outputEmpty(context, "flow_0");
-            outputEmpty(context, "flow_1");
-            outputEmpty(context, "flow_2");
-            outputEmpty(context, "flow_3");
-            outputEmpty(context, "flow_4");
-            outputEmpty(context, "flow_5");
-        } else {
-            outputMat<float, 2>(context, data->gt.flowPyramid[0], "flow_0");
-            outputMat<float, 2>(context, data->gt.flowPyramid[1], "flow_1");
-            outputMat<float, 2>(context, data->gt.flowPyramid[2], "flow_2");
-            outputMat<float, 2>(context, data->gt.flowPyramid[3], "flow_3");
-            outputMat<float, 2>(context, data->gt.flowPyramid[4], "flow_4");
-            outputMat<float, 2>(context, data->gt.flowPyramid[5], "flow_5");
-        }
+        outputMat<float, 2>(context, data->gt.flow, "flow");
+        outputMat<int32_t, 1>(context, data->gt.flowMask, "flow_mask");
         outputInt(context, data->gt.cls, "cls");
         outputMat<int32_t, 1>(context, data->gt.pixelwiseLabels, "pixelwise_labels");
         outputBBTargets(context, data->gt.bbList);
@@ -458,12 +441,8 @@ REGISTER_OP("Dataset")
     .Attr("mode: string")
     .Output("left_img: float32")
     .Output("prev_left_img: float32")
-    .Output("flow_0: float32")
-    .Output("flow_1: float32")
-    .Output("flow_2: float32")
-    .Output("flow_3: float32")
-    .Output("flow_4: float32")
-    .Output("flow_5: float32")
+    .Output("flow: float32")
+    .Output("flow_mask: int32")
     .Output("cls: int32")
     .Output("pixelwise_labels: int32")
     .Output("bb_targets_objectness: int32")
@@ -482,12 +461,8 @@ REGISTER_OP("Dataset")
         int idx = 0;
         c->set_output(idx++, c->MakeShape({-1, -1, 3})); /* left_img */
         c->set_output(idx++, c->MakeShape({-1, -1, 3})); /* prev_left_img */
-        c->set_output(idx++, c->MakeShape({-1, -1, 2})); /* flow_0 */
-        c->set_output(idx++, c->MakeShape({-1, -1, 2})); /* flow_1 */
-        c->set_output(idx++, c->MakeShape({-1, -1, 2})); /* flow_2 */
-        c->set_output(idx++, c->MakeShape({-1, -1, 2})); /* flow_3 */
-        c->set_output(idx++, c->MakeShape({-1, -1, 2})); /* flow_4 */
-        c->set_output(idx++, c->MakeShape({-1, -1, 2})); /* flow_5 */
+        c->set_output(idx++, c->MakeShape({-1, -1, 2})); /* flow */
+        c->set_output(idx++, c->MakeShape({-1, -1, 2})); /* flow_mask */
         c->set_output(idx++, c->MakeShape({1})); /* cls */
         c->set_output(idx++, c->MakeShape({-1, -1, 1})); /* pixelwise_labels */
         c->set_output(idx++, c->MakeShape({-1, 1})); /* bb_targets_objectness */

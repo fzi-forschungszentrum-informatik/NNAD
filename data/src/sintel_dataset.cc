@@ -87,31 +87,13 @@ std::shared_ptr<DatasetEntry> SintelDataset::get(std::size_t i)
     auto flowPath = m_flowPath / bfs::path(key + std::string(".flo"));
     cv::Mat flowImg = readFlowImg(flowPath.string());
     flowImg = flowImg(roi);
-    result->gt.flowPyramid = flowPyramid(flowImg);
+    result->gt.flow = flowImg;
 
     result->metadata.originalWidth = result->input.left.cols;
     result->metadata.originalHeight = result->input.left.rows;
     result->metadata.canFlip = false;
     result->metadata.horizontalFov = -1.0;
     result->metadata.key = key;
-    return result;
-}
-
-std::vector<cv::Mat> SintelDataset::flowPyramid(cv::Mat flow) const
-{
-    float initialScale = 4.0;
-    int numLevels = 6;
-
-    std::vector<cv::Mat> result;
-
-    cv::resize(flow, flow, cv::Size(), 1.0 / initialScale, 1.0 / initialScale);
-    flow *= 1.0 / initialScale;
-    result.push_back(flow);
-    for (int i = 1; i < numLevels; i++) {
-        cv::resize(flow, flow, cv::Size(), 1.0 / 2.0, 1.0 / 2.0);
-        flow *= 1.0 / 2.0;
-        result.push_back(flow);
-    }
     return result;
 }
 
