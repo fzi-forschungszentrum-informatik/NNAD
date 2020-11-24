@@ -78,12 +78,13 @@ embedding_loss_val = EmbeddingLoss('embedding_loss_val', config)
 @tf.function
 def single_train_step():
     images, ground_truth, metadata = ds.get_batched_data(config['single_frame']['batch_size_per_gpu'])
+    train_bn = global_step < config['single_frame']['freeze_bn_step']
 
     with tf.GradientTape(persistent=True) as tape:
-        feature_map = backbone(images['left'], True)
-        feature_map = fpn1(feature_map, True)
-        feature_map = fpn2(feature_map, True)
-        results = heads(feature_map, True)
+        feature_map = backbone(images['left'], train_bn)
+        feature_map = fpn1(feature_map, train_bn)
+        feature_map = fpn2(feature_map, train_bn)
+        results = heads(feature_map, train_bn)
 
         losses = []
         if config['train_labels']:
