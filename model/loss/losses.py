@@ -95,16 +95,16 @@ def ssim(x, y):
     C2 = 0.03 ** 2
 
     # padding of images
-    x = tf.pad(x, [[0, 0], [1, 1], [1, 1], [0, 0]] 'reflect')
-    y = tf.pad(y, [[0, 0], [1, 1], [1, 1], [0, 0]] 'reflect')
+    x = tf.pad(x, [[0, 0], [1, 1], [1, 1], [0, 0]], 'reflect')
+    y = tf.pad(y, [[0, 0], [1, 1], [1, 1], [0, 0]], 'reflect')
 
     # local mean and variance
-    mu_x = tf.nn.avg_pool2d(x, 3, 1, 'valid')
-    mu_y = tf.nn.avg_pool2d(y, 3, 1, 'valid')
+    mu_x = tf.nn.avg_pool2d(x, 3, 1, 'VALID')
+    mu_y = tf.nn.avg_pool2d(y, 3, 1, 'VALID')
 
-    avg_xx = tf.nn.avg_pool2d(x * x, 3, 1, 'valid')
-    avg_xy = tf.nn.avg_pool2d(x * y, 3, 1, 'valid')
-    avg_yy = tf.nn.avg_pool2d(y * y, 3, 1, 'valid')
+    avg_xx = tf.nn.avg_pool2d(x * x, 3, 1, 'VALID')
+    avg_xy = tf.nn.avg_pool2d(x * y, 3, 1, 'VALID')
+    avg_yy = tf.nn.avg_pool2d(y * y, 3, 1, 'VALID')
 
     sigma_x  = avg_xx - mu_x * mu_x
     sigma_y  = avg_yy - mu_y * mu_y
@@ -142,6 +142,10 @@ def smoothness_loss(img, disp):
     return grad_disp_x + grad_disp_y
 
 # The "mask" input must be the logits (before sigmoid)!
-def mask_regularization_loss(mask):
-    return 0.2 * itf.nn.sigmoid_cross_entropy_with_logits(tf.ones_like(mask), mask)
+def mask_regularization_loss(mask, gt_mask=None):
+    if gt_mask is None:
+        gt_mask = tf.ones_like(mask, tf.float32)
+    else:
+        gt_mask = tf.cast(gt_mask, tf.float32)
+    return 0.2 * tf.nn.sigmoid_cross_entropy_with_logits(labels=gt_mask, logits=mask)
 

@@ -17,6 +17,7 @@
 ##########################################################################
 
 import tensorflow as tf
+import tensorflow_addons as tfa
 
 from .losses import *
 from .WeightKendall import *
@@ -25,59 +26,86 @@ class FlowLoss(tf.keras.Model):
     def __init__(self, name):
         super().__init__(name=name)
 
+        self.weight_supervised = WeightKendall('weight_supervised')
+        self.weight_photo = WeightKendall('weight_foto')
+        self.weight_mask = WeightKendall('weight_mask')
+
     def call(self, inputs, step):
-        result, ground_truth = inputs
+        result, images, ground_truth = inputs
 
-        flow_0 = result['flow_0']
-        flow_0 = tf.reshape(flow_0, [-1])
-        flow_1 = result['flow_1']
-        flow_1 = tf.reshape(flow_1, [-1])
-        flow_2 = result['flow_2']
-        flow_2 = tf.reshape(flow_2, [-1])
-        flow_3 = result['flow_3']
-        flow_3 = tf.reshape(flow_3, [-1])
-        flow_4 = result['flow_4']
-        flow_4 = tf.reshape(flow_4, [-1])
-        flow_5 = result['flow_5']
-        flow_5 = tf.reshape(flow_5, [-1])
-        flow_1_up = result['flow_1_up']
-        flow_1_up = tf.reshape(flow_1_up, [-1])
-        flow_2_up = result['flow_2_up']
-        flow_2_up = tf.reshape(flow_2_up, [-1])
-        flow_3_up = result['flow_3_up']
-        flow_3_up = tf.reshape(flow_3_up, [-1])
-        flow_4_up = result['flow_4_up']
-        flow_4_up = tf.reshape(flow_4_up, [-1])
-        flow_5_up = result['flow_5_up']
-        flow_5_up = tf.reshape(flow_5_up, [-1])
+        flows = [result['flow_0'], result['flow_1'], result['flow_2'],
+                 result['flow_3'], result['flow_4'], result['flow_5']]
 
-        gt_flow_0 = ground_truth['flow_0']
-        gt_flow_0 = tf.reshape(gt_flow_0, [-1])
-        gt_flow_0 = tf.stop_gradient(gt_flow_0)
-        gt_flow_1 = ground_truth['flow_1']
-        gt_flow_1 = tf.reshape(gt_flow_1, [-1])
-        gt_flow_1 = tf.stop_gradient(gt_flow_1)
-        gt_flow_2 = ground_truth['flow_2']
-        gt_flow_2 = tf.reshape(gt_flow_2, [-1])
-        gt_flow_2 = tf.stop_gradient(gt_flow_2)
-        gt_flow_3 = ground_truth['flow_3']
-        gt_flow_3 = tf.reshape(gt_flow_3, [-1])
-        gt_flow_3 = tf.stop_gradient(gt_flow_3)
-        gt_flow_4 = ground_truth['flow_4']
-        gt_flow_4 = tf.reshape(gt_flow_4, [-1])
-        gt_flow_4 = tf.stop_gradient(gt_flow_4)
-        gt_flow_5 = ground_truth['flow_5']
-        gt_flow_5 = tf.reshape(gt_flow_5, [-1])
-        gt_flow_5 = tf.stop_gradient(gt_flow_5)
+        flows_up = [result['flow_1_up'], result['flow_2_up'], result['flow_3_up'],
+                    result['flow_4_up'], result['flow_5_up']]
 
-        loss_0 = tf.norm(flow_0 - gt_flow_0) + tf.norm(flow_1_up - gt_flow_0)
-        loss_1 = tf.norm(flow_1 - gt_flow_1) + tf.norm(flow_2_up - gt_flow_1)
-        loss_2 = tf.norm(flow_2 - gt_flow_2) + tf.norm(flow_3_up - gt_flow_2)
-        loss_3 = tf.norm(flow_3 - gt_flow_3) + tf.norm(flow_4_up - gt_flow_3)
-        loss_4 = tf.norm(flow_4 - gt_flow_4) + tf.norm(flow_5_up - gt_flow_4)
-        loss_5 = tf.norm(flow_5 - gt_flow_5)
+        masks = [result['fmask_0'], result['fmask_1'], result['fmask_2'],
+                 result['fmask_3'], result['fmask_4'], result['fmask_5']]
 
-        loss = 0.2 * loss_0 + 0.4 * loss_1 + 1.6 * loss_2 + 6.4 * loss_3 + 25.6 * loss_4 + 102.4 * loss_5
+        current_img=images['left']
+        h = tf.shape(current_img)[1]
+        w = tf.shape(current_img)[2]
+        prev_img=images['prev_left']
 
-        tf.summary.scalar('flow_loss', loss, step)
-        return loss
+        gt_flow = ground_truth['flow']
+        gt_flow = tf.stop_gradient(gt_flow)
+
+        gt_mask = ground_truth['flow_mask']
+        gt_mask = tf.stop_gradient(gt_mask)
+
+        photo_loss = tf.constant(0.0, tf.float32)
+        supervised_loss = tf.constant(0.0, tf.float32)
+        factor = 1.0
+        for i in range(len(flows)):
+            flow = flows[i]
+            mask = masks[i]
+
+            smask = tf.nn.sigmoid(mask)
+            h_flow = tf.shape(flow)[1]
+            flow = tf.image.resize(flow, [h, w]) * tf.cast(h, tf.float32) / tf.cast(h_flow, tf.float32)
+            mask = tf.image.resize(mask, [h, w])
+            smask = tf.image.resize(smask, [h, w])
+            supervised_loss += factor * tf.reduce_sum(smask * smooth_l1_diff(flow - gt_flow, delta=1.0))
+
+            warped_img = tfa.image.dense_image_warp(current_img, -flow)
+            warped_img.set_shape(prev_img.get_shape())
+            photo_loss += factor * tf.reduce_sum(smask * photometric_loss(prev_img, warped_img))
+
+            gt_mask=None # hack
+            mloss = factor * tf.reduce_sum(mask_regularization_loss(mask, gt_mask))
+            supervised_loss += mloss
+            photo_loss += mloss
+            factor *= 0.5
+
+        factor = 0.5
+        for i in range(len(flows_up)):
+            flow = flows_up[i]
+            mask = masks[i + 1]
+
+            smask = tf.nn.sigmoid(mask)
+            h_flow = tf.shape(flow)[1]
+            flow = tf.image.resize(flow, [h, w]) * tf.cast(h, tf.float32) / tf.cast(h_flow, tf.float32)
+            mask = tf.image.resize(mask, [h, w])
+            smask = tf.image.resize(smask, [h, w])
+            supervised_loss += factor * tf.reduce_sum(smask * smooth_l1_diff(flow - gt_flow, delta=1.0))
+
+            warped_img = tfa.image.dense_image_warp(current_img, -flow)
+            warped_img.set_shape(prev_img.get_shape())
+            photo_loss += factor * tf.reduce_sum(smask * photometric_loss(prev_img, warped_img))
+
+            gt_mask=None # hack
+            mloss = factor * tf.reduce_sum(mask_regularization_loss(mask, gt_mask))
+            supervised_loss += mloss
+            photo_loss += mloss
+            factor *= 0.5
+
+        # Some sensible scaling
+        supervised_loss *= 1e-6
+        photo_loss *= 1e-5
+
+        supervised_loss = self.weight_supervised(supervised_loss, step)
+        photo_loss = self.weight_photo(photo_loss, step)
+
+        tf.summary.scalar('flow_loss_supervised', supervised_loss, step)
+        tf.summary.scalar('flow_loss_photometric', photo_loss, step)
+        return supervised_loss + photo_loss

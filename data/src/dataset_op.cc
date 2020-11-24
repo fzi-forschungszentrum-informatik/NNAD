@@ -462,7 +462,7 @@ REGISTER_OP("Dataset")
         c->set_output(idx++, c->MakeShape({-1, -1, 3})); /* left_img */
         c->set_output(idx++, c->MakeShape({-1, -1, 3})); /* prev_left_img */
         c->set_output(idx++, c->MakeShape({-1, -1, 2})); /* flow */
-        c->set_output(idx++, c->MakeShape({-1, -1, 2})); /* flow_mask */
+        c->set_output(idx++, c->MakeShape({-1, -1, 1})); /* flow_mask */
         c->set_output(idx++, c->MakeShape({1})); /* cls */
         c->set_output(idx++, c->MakeShape({-1, -1, 1})); /* pixelwise_labels */
         c->set_output(idx++, c->MakeShape({-1, 1})); /* bb_targets_objectness */

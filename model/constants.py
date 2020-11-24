@@ -21,7 +21,7 @@ import collections
 from thirdparty.online_norm import *
 
 def Normalization():
-    return tf.keras.layers.BatchNormalization(momentum=0.9, epsilon=0.01)
+    return tf.keras.layers.BatchNormalization(momentum=0.9, epsilon=0.01, fused=False)
 
 KERNEL_INITIALIZER = tf.keras.initializers.VarianceScaling(2.0, mode='fan_out', distribution='normal')
 
@@ -75,4 +75,6 @@ BIFPN_NUM_FEATURES = int(64 * 1.35 ** D)
 BIFPN_NUM_BLOCKS = int(3 + D)
 
 HEADS_NUM_BLOCKS = int(3 + D / 3.0)
+
+FLOW_NUM_FEATURES = int(32 * 1.35 ** D)
 FLOW_NUM_BLOCKS = int(2 + D / 3.0)

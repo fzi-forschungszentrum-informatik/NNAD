@@ -53,10 +53,10 @@ with tf.device('/cpu:0'):
     global_step = tf.Variable(0, 'global_flow_step')
 
 # Define the learning rate schedule
-learning_rate_fn, max_train_steps = get_learning_rate_fn(config['flow'], global_step)
+learning_rate_fn, weight_decay_fn, max_train_steps = get_learning_rate_fn(config['single_frame'], global_step, 1.0e-7)
 
 # Create an optimizer, the network and the loss class
-opt = tfa.optimizers.LAMB(learning_rate_fn)
+opt = tfa.optimizers.AdamW(learning_rate=learning_rate_fn, weight_decay=weight_decay_fn)
 
 # Models
 backbone = EfficientNet('backbone', BACKBONE_ARGS)
@@ -71,17 +71,18 @@ def train_step():
     flow_images, flow_ground_truth, flow_metadata = flow_ds.get_batched_data(config['flow']['batch_size_per_gpu'])
 
     ## Optical flow loss
-    current_flow_feature_map = backbone(flow_images['left'], False)
-    current_flow_feature_map = fpn1(current_flow_feature_map, False)
-    previous_flow_feature_map = backbone(flow_images['prev_left'], False)
-    previous_flow_feature_map = fpn1(previous_flow_feature_map, False)
-    current_flow_feature_map = [tf.stop_gradient(x) for x in current_flow_feature_map]
-    previous_flow_feature_map = [tf.stop_gradient(x) for x in previous_flow_feature_map]
     with tf.GradientTape(persistent=True) as tape:
+        current_flow_feature_map = backbone(flow_images['left'], True) #False)
+        current_flow_feature_map = fpn1(current_flow_feature_map, True) #False)
+        previous_flow_feature_map = backbone(flow_images['prev_left'], True) #False)
+        previous_flow_feature_map = fpn1(previous_flow_feature_map, True) #False)
+    #current_flow_feature_map = [tf.stop_gradient(x) for x in current_flow_feature_map]
+    #previous_flow_feature_map = [tf.stop_gradient(x) for x in previous_flow_feature_map]
+    #with tf.GradientTape(persistent=True) as tape:
         flow_results = flow([current_flow_feature_map, previous_flow_feature_map], True)
-        flow_l = flow_loss([flow_results, flow_ground_truth], tf.cast(global_step, tf.int64))
+        flow_l = flow_loss([flow_results, flow_images, flow_ground_truth], tf.cast(global_step, tf.int64))
         vs = flow.trainable_variables + flow_loss.trainable_variables
-        total_loss = flow_l + tf.add_n(flow.losses + flow_loss.losses)
+        total_loss = flow_l
     gs = tape.gradient(total_loss, vs)
     opt.apply_gradients(zip(gs, vs))
     return total_loss
@@ -96,10 +97,6 @@ checkpoint_status = checkpoint.restore(checkpoint_manager.latest_checkpoint)
 step = global_step.numpy()
 summary_step = step + 1
 while step < max_train_steps:
-    # Enable trace
-    if step == summary_step:
-        tf.summary.trace_on(graph=True, profiler=True)
-
     # Run training step
     with train_summary_writer.as_default():
         start_time = time.time()
@@ -117,14 +114,6 @@ while step < max_train_steps:
         print('%s: step %d, lr = %e, loss = %.6f (%.1f examples/sec: %.3f sec/batch)' %
               (datetime.now(), step, learning_rate_fn().numpy(), total_loss.numpy(), examples_per_sec,
                sec_per_batch))
-
-    # Save trace
-    if step == summary_step:
-        if step > 100:
-            checkpoint_status.assert_existing_objects_matched().assert_consumed()
-        with train_summary_writer.as_default():
-            tf.summary.trace_export("Trace %s" % datetime.now(), step,
-                                    profiler_outdir=os.path.join(config['state_dir'], 'summaries'))
 
     # Save checkpoints
     if step > 0 and (step % 1000 == 0 or (step + 1) == max_train_steps):
