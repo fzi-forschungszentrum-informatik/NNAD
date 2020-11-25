@@ -71,14 +71,13 @@ def train_step():
     flow_images, flow_ground_truth, flow_metadata = flow_ds.get_batched_data(config['flow']['batch_size_per_gpu'])
 
     ## Optical flow loss
+    current_flow_feature_map = backbone(flow_images['left'], False)
+    current_flow_feature_map = fpn1(current_flow_feature_map, False)
+    previous_flow_feature_map = backbone(flow_images['prev_left'], False)
+    previous_flow_feature_map = fpn1(previous_flow_feature_map, False)
+    current_flow_feature_map = [tf.stop_gradient(x) for x in current_flow_feature_map]
+    previous_flow_feature_map = [tf.stop_gradient(x) for x in previous_flow_feature_map]
     with tf.GradientTape(persistent=True) as tape:
-        current_flow_feature_map = backbone(flow_images['left'], True) #False)
-        current_flow_feature_map = fpn1(current_flow_feature_map, True) #False)
-        previous_flow_feature_map = backbone(flow_images['prev_left'], True) #False)
-        previous_flow_feature_map = fpn1(previous_flow_feature_map, True) #False)
-    #current_flow_feature_map = [tf.stop_gradient(x) for x in current_flow_feature_map]
-    #previous_flow_feature_map = [tf.stop_gradient(x) for x in previous_flow_feature_map]
-    #with tf.GradientTape(persistent=True) as tape:
         flow_results = flow([current_flow_feature_map, previous_flow_feature_map], True)
         flow_l = flow_loss([flow_results, flow_images, flow_ground_truth], tf.cast(global_step, tf.int64))
         vs = flow.trainable_variables + flow_loss.trainable_variables
