@@ -42,6 +42,7 @@ def _warp(features, flow):
     # We need to use the negative flow here because of how tfa.image.dense_image_warp works
     # What we really want is to look up the coordinates at coord_old + flow and map them back to coorld_old
     neg_flow = -flow
+    neg_flow = neg_flow / FLOW_FACTOR
     warped = tfa.image.dense_image_warp(features, neg_flow)
     warped.set_shape(features.get_shape())
     return warped

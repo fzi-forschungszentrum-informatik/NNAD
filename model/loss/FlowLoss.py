@@ -20,6 +20,7 @@ import tensorflow as tf
 import tensorflow_addons as tfa
 
 from .losses import *
+from model.constants import *
 from .WeightKendall import *
 
 class FlowLoss(tf.keras.Model):
@@ -48,6 +49,7 @@ class FlowLoss(tf.keras.Model):
         prev_img=images['prev_left']
 
         gt_flow = ground_truth['flow']
+        gt_flow *= FLOW_FACTOR # We train larger flow for regression.
         gt_flow = tf.stop_gradient(gt_flow)
 
         gt_mask = ground_truth['flow_mask']
@@ -67,7 +69,7 @@ class FlowLoss(tf.keras.Model):
             smask = tf.image.resize(smask, [h, w])
             supervised_loss += factor * tf.reduce_sum(smask * smooth_l1_diff(flow - gt_flow, delta=1.0))
 
-            warped_img = tfa.image.dense_image_warp(current_img, -flow)
+            warped_img = tfa.image.dense_image_warp(current_img, -flow / FLOW_FACTOR)
             warped_img.set_shape(prev_img.get_shape())
             photo_loss += factor * tf.reduce_sum(smask * photometric_loss(prev_img, warped_img))
 
@@ -75,7 +77,7 @@ class FlowLoss(tf.keras.Model):
             mloss = factor * tf.reduce_sum(mask_regularization_loss(mask, gt_mask))
             supervised_loss += mloss
             photo_loss += mloss
-            factor *= 0.5
+            factor *= 0.25
 
         factor = 0.5
         for i in range(len(flows_up)):
@@ -89,7 +91,7 @@ class FlowLoss(tf.keras.Model):
             smask = tf.image.resize(smask, [h, w])
             supervised_loss += factor * tf.reduce_sum(smask * smooth_l1_diff(flow - gt_flow, delta=1.0))
 
-            warped_img = tfa.image.dense_image_warp(current_img, -flow)
+            warped_img = tfa.image.dense_image_warp(current_img, -flow / FLOW_FACTOR)
             warped_img.set_shape(prev_img.get_shape())
             photo_loss += factor * tf.reduce_sum(smask * photometric_loss(prev_img, warped_img))
 
@@ -97,7 +99,7 @@ class FlowLoss(tf.keras.Model):
             mloss = factor * tf.reduce_sum(mask_regularization_loss(mask, gt_mask))
             supervised_loss += mloss
             photo_loss += mloss
-            factor *= 0.5
+            factor *= 0.25
 
         # Some sensible scaling
         supervised_loss *= 1e-6

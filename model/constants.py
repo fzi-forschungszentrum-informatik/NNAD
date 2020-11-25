@@ -78,3 +78,7 @@ HEADS_NUM_BLOCKS = int(3 + D / 3.0)
 
 FLOW_NUM_FEATURES = int(32 * 1.35 ** D)
 FLOW_NUM_BLOCKS = int(2 + D / 3.0)
+
+# We train 16 times larger flow estimates for more stable predictions
+FLOW_FACTOR = 16.0
+
