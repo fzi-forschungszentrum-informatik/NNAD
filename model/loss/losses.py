@@ -123,7 +123,7 @@ def smoothness_loss(img, disp):
     EPS = 1e-7
 
     # normalize disparity
-    mean_disp = tf.math.reduce_mean(disp, [1, 2])
+    mean_disp = tf.math.reduce_mean(disp, [1, 2], keepdims=True)
     norm_disp = disp / (mean_disp + EPS)
 
     # calculate gradients of disparity and image
@@ -134,12 +134,12 @@ def smoothness_loss(img, disp):
     grad_img_y = tf.math.abs(img[:, :-1, :, :] - img[:, 1:, :, :])
 
     # Weight disparity gradients
-    grad_disp_x *= tf.math.exp(-tf.math.reduce_mean(grad_img_x, -1))
-    grad_disp_y *= tf.math.exp(-tf.math.reduce_mean(grad_img_y, -1))
+    grad_disp_x *= tf.tile(tf.expand_dims(tf.math.exp(-tf.math.reduce_mean(grad_img_x, -1)), 3), [1, 1, 1, 2])
+    grad_disp_y *= tf.tile(tf.expand_dims(tf.math.exp(-tf.math.reduce_mean(grad_img_y, -1)), 3), [1, 1, 1, 2])
 
-    loss = grad_disp_x + grad_disp_y
-    loss *= 1e-3
-    return grad_disp_x + grad_disp_y
+    loss = tf.reduce_sum(grad_disp_x) + tf.reduce_sum(grad_disp_y)
+    loss *= 3.0
+    return loss
 
 # The "mask" input must be the logits (before sigmoid)!
 def mask_regularization_loss(mask, gt_mask=None):

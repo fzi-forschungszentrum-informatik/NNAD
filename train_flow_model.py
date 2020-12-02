@@ -53,7 +53,7 @@ with tf.device('/cpu:0'):
     global_step = tf.Variable(0, 'global_flow_step')
 
 # Define the learning rate schedule
-learning_rate_fn, weight_decay_fn, max_train_steps = get_learning_rate_fn(config['single_frame'], global_step, 1.0e-7)
+learning_rate_fn, weight_decay_fn, max_train_steps = get_learning_rate_fn(config['flow'], global_step, 1.0e-7)
 
 # Create an optimizer, the network and the loss class
 opt = tfa.optimizers.AdamW(learning_rate=learning_rate_fn, weight_decay=weight_decay_fn)

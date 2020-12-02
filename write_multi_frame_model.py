@@ -56,15 +56,15 @@ class Infer(tf.Module):
 
     @tf.function(input_signature=[
             [tf.TensorSpec([1,
-                           int(config['eval_image_height'] / 2**(i+3)),
-                           int(config['eval_image_width'] / 2**(i+3)),
+                           int(config['eval_image_height'] / 2**(i+2)),
+                           int(config['eval_image_width'] / 2**(i+2)),
                            BIFPN_NUM_FEATURES],
-             tf.float32, 'current_features_{}'.format(i)) for i in range(5)],
+             tf.float32, 'current_features_{}'.format(i)) for i in range(6)],
             [tf.TensorSpec([1,
-                           int(config['eval_image_height'] / 2**(i+3)),
-                           int(config['eval_image_width'] / 2**(i+3)),
+                           int(config['eval_image_height'] / 2**(i+2)),
+                           int(config['eval_image_width'] / 2**(i+2)),
                            BIFPN_NUM_FEATURES],
-             tf.float32, 'prev_features_{}'.format(i)) for i in range(5)]])
+             tf.float32, 'prev_features_{}'.format(i)) for i in range(6)]])
     def inferHeads(self, current_feature_map, prev_feature_map):
         return_vals = {}
 
@@ -121,4 +121,5 @@ checkpoint.restore(checkpoint_manager.latest_checkpoint)
 signature_dict = {'infer': infer.infer, 'inferBackbone': infer.inferBackbone, 'inferHeads': infer.inferHeads}
 saved_model_dir = os.path.join(config['state_dir'], 'saved_model')
 clean_directory(saved_model_dir)
-tf.saved_model.save(infer, saved_model_dir, signature_dict)
+save_options = tf.saved_model.SaveOptions(namespace_whitelist=['Addons'])
+tf.saved_model.save(infer, saved_model_dir, signature_dict, save_options)

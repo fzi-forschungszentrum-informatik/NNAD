@@ -34,6 +34,7 @@ from model.Heads import *
 from model.EfficientNet import *
 from model.BiFPN import *
 from model.Flow import *
+from model.loss.BackwardFlowLoss import *
 from model.loss.LabelLoss import *
 from model.loss.BoxLoss import *
 from model.loss.EmbeddingLoss import *
@@ -55,10 +56,10 @@ with tf.device('/cpu:0'):
     global_step = tf.Variable(0, 'global_multi_step')
 
 # Define the learning rate schedule
-learning_rate_fn, max_train_steps = get_learning_rate_fn(config['multi_frame'], global_step)
+learning_rate_fn, weight_decay_fn, max_train_steps = get_learning_rate_fn(config['multi_frame'], global_step, 1.0e-7)
 
 # Create an optimizer, the network and the loss class
-opt = tfa.optimizers.LAMB(learning_rate_fn)
+opt = tfa.optimizers.AdamW(learning_rate=learning_rate_fn, weight_decay=weight_decay_fn)
 
 # Models
 backbone = EfficientNet('backbone', BACKBONE_ARGS)
@@ -68,16 +69,14 @@ flow = Flow('flow')
 flow_warp = FlowWarp('flow_warp')
 heads = Heads('heads', config, box_delta_regression=True)
 
-if config['train_labels']:
-    label_loss = LabelLoss('label_loss', config)
-if config['train_boundingboxes']:
-    box_loss = BoxLoss('box_loss', config, box_delta_regression=True)
-    embedding_loss = EmbeddingLoss('embedding_loss', config)
+flow_loss = BackwardFlowLoss('backward_flow_loss')
+label_loss = LabelLoss('label_loss', config)
+box_loss = BoxLoss('box_loss', config, box_delta_regression=True)
+embedding_loss = EmbeddingLoss('embedding_loss', config)
 
 @tf.function
 def train_step():
     images, ground_truth, metadata = ds.get_batched_data(config['multi_frame']['batch_size_per_gpu'])
-
 
     current_feature_map = backbone(images['left'], False)
     current_feature_map = fpn1(current_feature_map, False)
@@ -104,15 +103,57 @@ def train_step():
         tf.summary.scalar('summed_losses', summed_losses, tf.cast(global_step, tf.int64))
 
         ## Regularization terms
-        regularizer_losses = flow_warp.losses + fpn2.losses + heads.losses
         vs = flow_warp.trainable_variables + fpn2.trainable_variables + heads.trainable_variables
         if config['train_labels']:
-            regularizer_losses += label_loss.losses
             vs += label_loss.trainable_variables
         if config['train_boundingboxes']:
-            regularizer_losses += box_loss.losses + embedding_loss.losses
             vs += box_loss.trainable_variables + embedding_loss.trainable_variables
-        total_loss = summed_losses + tf.add_n(regularizer_losses)
+        total_loss = summed_losses
+
+    gs = tape.gradient(total_loss, vs)
+    opt.apply_gradients(zip(gs, vs))
+    return total_loss
+
+@tf.function
+def combined_train_step():
+    images, ground_truth, metadata = ds.get_batched_data(config['multi_frame']['batch_size_per_gpu'])
+
+    with tf.GradientTape(persistent=True) as tape:
+        with tf.device('/gpu:0'):
+            current_feature_map = backbone(images['left'], True)
+            current_feature_map = fpn1(current_feature_map, True)
+            prev_feature_map = backbone(images['prev_left'], True)
+            prev_feature_map = fpn1(prev_feature_map, True)
+        with tf.device('/gpu:1'):
+            bw_flow = flow([prev_feature_map, current_feature_map], True)
+            feature_map = flow_warp([current_feature_map,
+                                     prev_feature_map,
+                                     bw_flow],
+                                    True)
+            feature_map = fpn2(feature_map, True)
+            results = heads(feature_map, True)
+
+            flow_l = flow_loss([bw_flow, images, ground_truth], tf.cast(global_step, tf.int64))
+            losses = [flow_l]
+            if config['train_labels']:
+                losses += [label_loss([results, ground_truth], tf.cast(global_step, tf.int64))]
+            if config['train_boundingboxes']:
+                losses += box_loss([results, ground_truth], tf.cast(global_step, tf.int64))
+                losses += [embedding_loss([results, ground_truth], tf.cast(global_step, tf.int64))]
+
+        ## Sum up all losses
+        summed_losses = tf.add_n(losses)
+        tf.summary.scalar('summed_losses', summed_losses, tf.cast(global_step, tf.int64))
+
+        ## Regularization terms
+        vs = backbone.trainable_variables + fpn1.trainable_variables + flow.trainable_variables + \
+             flow_warp.trainable_variables + fpn2.trainable_variables + heads.trainable_variables + \
+             flow_loss.trainable_variables
+        if config['train_labels']:
+            vs += label_loss.trainable_variables
+        if config['train_boundingboxes']:
+            vs += box_loss.trainable_variables + embedding_loss.trainable_variables
+        total_loss = summed_losses
 
     gs = tape.gradient(total_loss, vs)
     opt.apply_gradients(zip(gs, vs))
@@ -127,16 +168,11 @@ checkpoint_status = checkpoint.restore(checkpoint_manager.latest_checkpoint)
 
 # Training loop
 step = global_step.numpy()
-summary_step = step + 1
 while step < max_train_steps:
-    # Enable trace
-    if step == summary_step:
-        tf.summary.trace_on(graph=True, profiler=True)
-
     # Run training step
     with train_summary_writer.as_default():
         start_time = time.time()
-        total_loss = train_step()
+        total_loss = combined_train_step()
         duration = time.time() - start_time
 
     assert not np.isnan(total_loss.numpy()), 'Model diverged with loss = NaN'
@@ -150,14 +186,6 @@ while step < max_train_steps:
         print('%s: step %d, lr = %e, loss = %.6f (%.1f examples/sec: %.3f sec/batch)' %
               (datetime.now(), step, learning_rate_fn().numpy(), total_loss.numpy(), examples_per_sec,
                sec_per_batch))
-
-    # Save trace
-    if step == summary_step:
-        if step > 100:
-            checkpoint_status.assert_existing_objects_matched().assert_consumed()
-        with train_summary_writer.as_default():
-            tf.summary.trace_export("Trace %s" % datetime.now(), step,
-                                    profiler_outdir=os.path.join(config['state_dir'], 'summaries'))
 
     # Save checkpoints
     if step > 0 and (step % 1000 == 0 or (step + 1) == max_train_steps):
