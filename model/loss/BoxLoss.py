@@ -99,13 +99,18 @@ class BoxLoss(tf.keras.Model):
             gt_targets_delta_valid = ground_truth['bb_targets_delta_valid']
 
             targets_delta = tf.reshape(targets_delta, [-1, 4])
+            targets_delta_pos, targets_delta_size = tf.split(targets_delta, num_or_size_splits=2, axis=-1)
             gt_targets_delta = tf.reshape(gt_targets_delta, [-1, 4])
+            gt_targets_delta_pos, gt_targets_delta_size = tf.split(gt_targets_delta, num_or_size_splits=2, axis=-1)
             gt_targets_delta_valid = tf.reshape(gt_targets_delta_valid, [-1])
 
             mask_delta = tf.equal(gt_targets_delta_valid, tf.constant(1))
-            masked_targets_delta = tf.boolean_mask(targets_delta, mask_delta)
-            masked_gt_targets_delta = tf.boolean_mask(gt_targets_delta, mask_delta)
-            delta_loss = smooth_l1_loss(logits=masked_targets_delta, labels=masked_gt_targets_delta, delta=0.1)
+            masked_targets_delta_pos = tf.boolean_mask(targets_delta_pos, mask_delta)
+            masked_targets_delta_size = tf.boolean_mask(targets_delta_size, mask_delta)
+            masked_gt_targets_delta_pos = tf.boolean_mask(gt_targets_delta_pos, mask_delta)
+            masked_gt_targets_delta_size = tf.boolean_mask(gt_targets_delta_size, mask_delta)
+            delta_loss = smooth_l1_loss(logits=masked_targets_delta_pos, labels=masked_gt_targets_delta_pos, delta=10.0) + \
+                         smooth_l1_loss(logits=masked_targets_delta_size, labels=masked_gt_targets_delta_size, delta=0.1)
             delta_loss = tf.reduce_sum(delta_loss) / num_anchors
 
             # Apply some sensible scaling before loss weighting

@@ -119,26 +119,22 @@ def ssim(x, y):
 def photometric_loss(x, y):
     return 0.85 * ssim(x, y) + 0.15 * tf.math.abs(x - y)
 
-def smoothness_loss(img, disp):
-    EPS = 1e-7
+def smoothness_loss(img, flow):
+    EPS = 1.0
 
-    # normalize disparity
-    mean_disp = tf.math.reduce_mean(disp, [1, 2], keepdims=True)
-    norm_disp = disp / (mean_disp + EPS)
-
-    # calculate gradients of disparity and image
-    grad_disp_x = tf.math.abs(norm_disp[:, :, :-1, :] - norm_disp[:, :, 1:, :])
-    grad_disp_y = tf.math.abs(norm_disp[:, :-1, :, :] - norm_disp[:, 1:, :, :])
+    # calculate gradients of flow and image
+    grad_flow_x = tf.math.abs(flow[:, :, :-1, :] - flow[:, :, 1:, :]) / (0.5 * (tf.math.abs(flow[:, :, :-1, :]) + tf.math.abs(flow[:, :, 1:, :])) + EPS)
+    grad_flow_y = tf.math.abs(flow[:, :-1, :, :] - flow[:, 1:, :, :]) / (0.5 * (tf.math.abs(flow[:, :-1, :, :]) + tf.math.abs(flow[:, 1:, :, :])) + EPS)
 
     grad_img_x = tf.math.abs(img[:, :, :-1, :] - img[:, :, 1:, :])
     grad_img_y = tf.math.abs(img[:, :-1, :, :] - img[:, 1:, :, :])
 
     # Weight disparity gradients
-    grad_disp_x *= tf.tile(tf.expand_dims(tf.math.exp(-tf.math.reduce_mean(grad_img_x, -1)), 3), [1, 1, 1, 2])
-    grad_disp_y *= tf.tile(tf.expand_dims(tf.math.exp(-tf.math.reduce_mean(grad_img_y, -1)), 3), [1, 1, 1, 2])
+    grad_flow_x *= tf.tile(tf.expand_dims(tf.math.exp(-tf.math.reduce_mean(grad_img_x, -1)), 3), [1, 1, 1, 2])
+    grad_flow_y *= tf.tile(tf.expand_dims(tf.math.exp(-tf.math.reduce_mean(grad_img_y, -1)), 3), [1, 1, 1, 2])
 
-    loss = tf.reduce_sum(grad_disp_x) + tf.reduce_sum(grad_disp_y)
-    loss *= 3.0
+    loss = tf.reduce_sum(grad_flow_x) + tf.reduce_sum(grad_flow_y)
+    loss *= 0.1
     return loss
 
 # The "mask" input must be the logits (before sigmoid)!
