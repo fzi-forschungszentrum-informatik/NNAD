@@ -8,4 +8,6 @@ driving. It currently contains the following branches:
    Learning Feature Embeddings" (https://arxiv.org/abs/2002.07662)
 - `icpram2020`: code for our paper "Simultaneous Object Detection and Semantic
    Segmentation" (https://arxiv.org/abs/1905.02285)
+- `tracking`: training code for our paper "Object Tracking by Detection with
+   Visual and Motion Cues" (https://arxiv.org/abs/2101.07549)
 
