@@ -77,6 +77,7 @@ embedding_loss = EmbeddingLoss('embedding_loss', config)
 @tf.function
 def train_step():
     images, ground_truth, metadata = ds.get_batched_data(config['multi_frame']['batch_size_per_gpu'])
+    train_bn = global_step < config['multi_frame']['freeze_bn_step']
 
     current_feature_map = backbone(images['left'], False)
     current_feature_map = fpn1(current_feature_map, False)
@@ -87,9 +88,9 @@ def train_step():
         feature_map = flow_warp([current_feature_map,
                                  prev_feature_map,
                                  bw_flow],
-                                True)
-        feature_map = fpn2(feature_map, True)
-        results = heads(feature_map, True)
+                                train_bn)
+        feature_map = fpn2(feature_map, train_bn)
+        results = heads(feature_map, train_bn)
 
         losses = []
         if config['train_labels']:
@@ -172,7 +173,7 @@ while step < max_train_steps:
     # Run training step
     with train_summary_writer.as_default():
         start_time = time.time()
-        total_loss = combined_train_step()
+        total_loss = train_step()
         duration = time.time() - start_time
 
     assert not np.isnan(total_loss.numpy()), 'Model diverged with loss = NaN'
