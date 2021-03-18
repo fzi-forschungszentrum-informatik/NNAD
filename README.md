@@ -22,6 +22,10 @@ The following packages are required to use this software:
 - Pillow
 - PyYAML
 
+## Installation hints
+
+To install pybind11 without requiring a system package, run `pip install "pybind[global]"` (this is required if your pybind installation is below version 2.2)
+
 ## Usage
 Please run `data/setup.sh` to compile the preprocessing and data loading code.
 Then you can create a configuration file for the training based on `example_config.yaml`
