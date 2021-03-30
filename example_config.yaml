@@ -20,6 +20,7 @@ use_cityscapes_train_bertha: False
 use_cityscapes_val: True
 use_cityscapes_test: False
 use_bdd100k_train_tracking: False
+use_bdd100k_seg_train: False
 use_kitti_train: False
 use_kitti_val: False
 use_kitti_test: False
@@ -43,6 +44,7 @@ pretrain:
 single_frame:
   lr_steps: [1500000, 1750000]
   lr_values: [1.0e-4, 1.0e-5]
+  freeze_bn_step: 1450000
   batch_size_per_gpu: 4
 
 # Multi frame settings
