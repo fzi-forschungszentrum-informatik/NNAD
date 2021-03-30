@@ -72,7 +72,7 @@ class BoxDecoder(tf.keras.Model):
         obj = self.obj_decoder(x, train_batch_norm=train_batch_norm)
         embedding = self.embedding_decoder(x, train_batch_norm=train_batch_norm)
         embedding = tf.reshape(embedding, [n, -1, self.config['box_embedding_len']])
-        embeding = tf.math.l2_normalize(embedding, axis=-1)
+        embedding = tf.math.l2_normalize(embedding, axis=-1)
         embedding = tf.reshape(embedding, [n, -1, self.config['box_embedding_len'] * BOXES_PER_POS])
 
         results = [box, cls, obj, embedding]
